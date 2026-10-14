@@ -1,0 +1,15 @@
+{
+  "name": "leader-growth-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.134.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  }
+}

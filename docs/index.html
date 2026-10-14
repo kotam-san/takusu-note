@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>リーダーの育ち帳</title>
+<meta name="description" content="社長と幹部が、答えるたびに問いが変わる診断と、短い学び、3分コーチングで育つための試作です。">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f6f5f1;--card:#ffffff;--ink:#1f2328;--sub:#59616b;--muted:#8a9099;--line:#e2e0d9;
+  --accent:#2f5d50;--accent-ink:#ffffff;--chip:#eef3f1;--warn-bg:#fdecec;--warn:#b42318;--ok:#1b7a4b;
+  --surface-1:#fcfcfb;--grid:#e8e7e2;
+  --series-A:#2a78d6;--series-B:#eb6834;--series-C:#1baf7a;--series-D:#eda100;
+}
+@media (prefers-color-scheme:dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --bg:#141516;--card:#1c1e20;--ink:#e9e7e2;--sub:#a7adb5;--muted:#7d838b;--line:#31353a;
+    --accent:#8cc5b3;--accent-ink:#10201b;--chip:#22302b;--warn-bg:#3a1d1d;--warn:#ff8a80;--ok:#7fd3a6;
+    --surface-1:#1a1a19;--grid:#2c2e30;
+    --series-A:#3987e5;--series-B:#d95926;--series-C:#199e70;--series-D:#c98500;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.8 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif;word-break:auto-phrase;line-break:strict}
+main{max-width:720px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:24px;line-height:1.4;margin:8px 0 4px}
+h2{font-size:19px;line-height:1.5;margin:0 0 12px}
+h3{font-size:14px;color:var(--sub);margin:20px 0 6px;font-weight:600}
+p{margin:0 0 12px}
+.lead{color:var(--sub)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:16px 0;padding:0;list-style:none}
+.flow li{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.6}
+.flow b{display:block;font-size:12px;color:var(--sub)}
+.notice{font-size:14px;color:var(--sub);border-left:3px solid var(--line);padding-left:12px}
+button{font:inherit;cursor:pointer;border-radius:10px;padding:10px 18px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.5;cursor:wait}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.role{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.role button{padding:18px 12px;text-align:left;line-height:1.6}
+.role button b{display:block;font-size:18px}
+.q{border-top:1px solid var(--line);padding:14px 0}
+.q:first-of-type{border-top:0}
+.q .axis{font-size:12px;color:var(--sub)}
+.q .because{font-size:13px;color:var(--accent);margin:2px 0 6px}
+.scale{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.scale label{display:block;border:1px solid var(--line);border-radius:8px;padding:8px 4px;text-align:center;font-size:12px;line-height:1.4;cursor:pointer}
+.scale input{position:absolute;opacity:0;pointer-events:none}
+.scale input:checked + span{font-weight:700}
+.scale label:has(input:checked){background:var(--chip);border-color:var(--accent)}
+.scale label:has(input:focus-visible){outline:2px solid var(--accent)}
+textarea{width:100%;min-height:96px;font:inherit;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);color:var(--ink)}
+.error{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;margin-top:12px}
+.loading{color:var(--sub)}
+.note{border-top:1px solid var(--line);padding:10px 0}
+.note b{color:var(--sub);font-size:13px;display:block}
+.lesson{background:var(--chip);border-radius:12px;padding:16px}
+.choices{display:grid;gap:6px;margin-top:8px}
+.choices button{text-align:left}
+.choices button.right{border-color:var(--ok);color:var(--ok);font-weight:600}
+.choices button.wrong{border-color:var(--warn);color:var(--warn)}
+.steps label{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer}
+.steps input[type=text]{flex:1;font:inherit;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--sub);margin:4px 0 8px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+svg.chart{width:100%;height:auto;background:var(--surface-1);border-radius:10px}
+svg.chart text{fill:var(--muted);font-size:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-top:1px solid var(--line);padding:6px 4px;text-align:center}
+th:first-child,td:first-child{text-align:left}
+.gap-big{color:var(--warn);font-weight:700}
+.code{font:600 20px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.05em}
+input.code-in{font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--card);color:var(--ink);width:12em}
+footer{color:var(--muted);font-size:12px;margin-top:40px}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+<main id="app">
+  <noscript>この画面は JavaScript で動きます。</noscript>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
