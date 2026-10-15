@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # 画面（GitHub Pages）の置き場所だけを受け付ける。手元の確認は環境変数 ALLOW_LOCALHOST=1（README「手元で動かす」）
 ALLOWED_ORIGINS = "https://kotam-san.github.io"
-DAILY_CAP = "300"
+DAILY_CAP = "30"
 
 # IPごとの回数制限：1分に6回まで
 [[ratelimits]]
