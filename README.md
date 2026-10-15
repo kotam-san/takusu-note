@@ -1,6 +1,6 @@
 # 託すノート
 
-社長と幹部が、答えるたびに問いが変わる診断と、短い学び、3分コーチングで育っていくための試作です。
+社長と幹部が、答えるたびに問いが変わる診断と、短い学び、3分コーチングでマネジメント力を育てていくための試作です。
 
 - 画面：https://kotam-san.github.io/takusu-note/
 - 仕組みの図：https://kotam-san.github.io/takusu-note/how.html
