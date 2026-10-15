@@ -68,8 +68,8 @@ worker/    AI を呼ぶ中継（Cloudflare Worker）。鍵は Cloudflare の秘�
 tests/     照合コード・記録の検証・推移の計算のテスト
 ```
 
-- AI：Claude（`claude-opus-5-5`）。決めた形（JSON）で受け取り、形と値を確かめてから画面に返します
-- 悪用への備え：呼び出し元の確認、IP ごとの回数制限、1日の全体上限、入力の長さの上限、出力の上限
+- AI：Claude（`claude-opus-5-5`）。決めた形（JSON）で受け取り、件数と選択肢の形を確かめてから画面に返します。安全上の理由で断られたときは、推奨の別モデルで自動的にやり直します
+- 悪用への備え：IP ごとの回数制限、1日の全体上限、入力の長さの上限、出力の上限。呼び出し元（Origin）の確認はブラウザ向けの補助で、認証ではありません。最後の歯止めとして、API 側に月の利用上限を設定しています
 - 自由記述に指示が書かれていても、AI はそれを指示として扱わず、相手の状態を知る材料としてだけ読みます
 
 ## 手元で動かす
@@ -92,6 +92,8 @@ python3 -m http.server 8768 --directory docs
 http://localhost:8768 を開き、「回答例で試す」を押すと、架空の回答で1周を試せます。
 
 ## テスト
+
+中継のテストは `@anthropic-ai/sdk` を読むので、先に `worker` で `npm install` を済ませます（AI は呼びません）。
 
 ```bash
 node --test tests/core.test.mjs tests/worker.test.mjs

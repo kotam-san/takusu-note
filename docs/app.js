@@ -8,7 +8,7 @@ import {
 import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
-const API_BASE = LOCAL ? "http://localhost:8787" : "https://takusu-note.WORKERS_SUBDOMAIN.workers.dev";
+const API_BASE = LOCAL ? "http://localhost:8787" : "https://takusu-note.kota-m.workers.dev";
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
 
 const app = document.getElementById("app");
@@ -224,6 +224,7 @@ function showQuiz() {
     AXIS_KEYS.forEach((k) => (app.querySelector(`input[name=f-${k}][value="${s.fixed[k]}"]`).checked = true));
     deepList.forEach((_, i) => (app.querySelector(`input[name=d-${i}][value="${s.deep[i] ?? 2}"]`).checked = true));
     concern.value = s.concern;
+    err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
   };
 
   submit.addEventListener("click", () => busy(submit, "AIが読んでいます…（20秒ほど）", async () => {
@@ -238,12 +239,12 @@ function showQuiz() {
     const last = state.store.rounds.at(-1);
     const body = {
       role, round, fixed, deep, concern: concern.value.trim(),
-      history: state.store.rounds.map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
+      history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
-      state.current = { round, fixed, deep, concern: body.concern, diagnosis };
+      state.current = { round, fixed, deep, concern: body.concern, diagnosis, history: body.history, prev_step: body.prev_step };
       showDiagnosis();
     } catch (e) {
       err.append(errorBox(e.message));
@@ -286,7 +287,7 @@ function showDiagnosis() {
   const reply = h("textarea", { maxlength: "800", placeholder: "思いつくままで大丈夫です" });
   const err = h("div");
   const send = h("button", { class: "primary" }, "答えを送る");
-  const fillSample = h("button", { onclick: () => (reply.value = SAMPLE[state.role].reply) }, "回答例で試す");
+  const fillSample = h("button", { onclick: () => { reply.value = SAMPLE[state.role].reply; err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。")); } }, "回答例で試す");
 
   send.addEventListener("click", () => busy(send, "受け止めています…", async () => {
     err.replaceChildren();
@@ -299,6 +300,7 @@ function showDiagnosis() {
       const out = await api("/api/coach", {
         role: state.role, question: d.coaching_question, reply: reply.value.trim(),
         summary: d.summary, concern: c.concern, fixed: c.fixed,
+        history: c.history, prev_step: c.prev_step,
       });
       c.coaching = { question: d.coaching_question, reply: reply.value.trim(), ...out };
       showSteps();
@@ -365,7 +367,7 @@ function showDone(saved) {
       h("h2", {}, "次の回の深掘りは、こう変わります"),
       h("p", { class: "notice" }, "今回の答えとコーチングを受けて、AIが作りました。"),
       c.coaching.next_questions.map((q) =>
-        h("div", { class: "q" }, h("div", { class: "axis" }, AXIS_NAMES[q.axis]), h("div", { class: "because" }, q.because), q.text))),
+        h("div", { class: "q" }, h("div", { class: "axis" }, AXIS_NAMES[q.axis]), h("div", { class: "because" }, `この問いにした理由：${q.because}`), q.text))),
     growthCard(),
     h("div", { class: "row" }, h("button", { class: "primary", onclick: showHome }, "記録を見る"), h("button", { onclick: showStart }, "はじめに戻る")),
   );

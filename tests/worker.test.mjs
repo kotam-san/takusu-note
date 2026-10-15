@@ -27,6 +27,11 @@ test("許可していない呼び出し元は 403", async () => {
 test("localhost は ALLOW_LOCALHOST=1 のときだけ通る", async () => {
   const res = await call("/api/diagnose", { origin: "http://localhost:8768", body: {} });
   assert.equal(res.status, 403);
+  const allowed = await worker.fetch(
+    new Request("https://w.example/api/diagnose", { method: "POST", headers: { Origin: "http://localhost:8768" }, body: "{}" }),
+    { ...env, ALLOW_LOCALHOST: "1" },
+  );
+  assert.equal(allowed.status, 400); // 呼び出し元は通り、入力の検証で止まる
 });
 
 test("存在しない道は 404", async () => {
@@ -39,7 +44,7 @@ test("壊れた JSON は 400", async () => {
 });
 
 test("大きすぎる本文は 413", async () => {
-  assert.equal((await call("/api/diagnose", { body: JSON.stringify({ x: "a".repeat(20000) }) })).status, 413);
+  assert.equal((await call("/api/diagnose", { body: JSON.stringify({ x: "あ".repeat(12000) }) })).status, 413);
 });
 
 test("立場・点数・長さが範囲外なら 400（AI は呼ばれない）", async () => {

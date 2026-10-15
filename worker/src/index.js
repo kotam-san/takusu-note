@@ -6,7 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AXES, COACH_SCHEMA, DIAGNOSE_SCHEMA, coachSystem, diagnoseSystem } from "./prompts.js";
 
 const MODEL = "claude-opus-5-5";
-const MAX_BODY = 16_000; // バイト
+const MAX_BODY = 32_000; // バイト（日本語は1文字3バイト）
 const AXIS_KEYS = ["A", "B", "C", "D"];
 
 // ---------------------------------------------------------------- 入口
@@ -38,7 +38,7 @@ export default {
       }
 
       const raw = await request.text();
-      if (raw.length > MAX_BODY) return json({ error: "too_large" }, 413, cors);
+      if (new TextEncoder().encode(raw).length > MAX_BODY) return json({ error: "too_large" }, 413, cors);
       let body;
       try {
         body = JSON.parse(raw);
@@ -117,9 +117,15 @@ async function coach(body, env) {
   const summary = checkText(body.summary ?? "", 600, "summary");
   const concern = checkText(body.concern ?? "", 400, "concern");
   const fixed = checkFixed(body.fixed);
+  const history = checkHistory(body.history);
+  const prev = body.prev_step
+    ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
+    : null;
 
   const content = [
     "<history>",
+    history.length ? history.map(fmtHistory).join("\n") : "（初回）",
+    prev ? `前回の一歩「${prev.text}」→ ${prev.done === true ? "やれた" : prev.done === false ? "やれなかった" : "未回答"}` : "",
     `今回の見立て：${summary}`,
     "推移用の4問の点数：" + AXIS_KEYS.map((k) => `${k}=${fixed[k].score}`).join(" "),
     "</history>",

@@ -4,7 +4,7 @@ compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-# 画面（GitHub Pages）の置き場所だけを受け付ける。手元の確認は .dev.vars で ALLOW_LOCALHOST=1
+# 画面（GitHub Pages）の置き場所だけを受け付ける。手元の確認は環境変数 ALLOW_LOCALHOST=1（README「手元で動かす」）
 ALLOWED_ORIGINS = "https://kotam-san.github.io"
 DAILY_CAP = "300"
 
@@ -16,9 +16,9 @@ namespace_id = "1001"
   limit = 6
   period = 60
 
-# 回数だけを数える（答えの本文は保存しない）。id はデプロイ前に作って入れる
-# [[kv_namespaces]]
-# binding = "STATS"
-# id = ""
+# 回数だけを数える（答えの本文は保存しない）
+[[kv_namespaces]]
+binding = "STATS"
+id = "605c42e3e86540d9856d22f9b9aabbcc"
 
 # 鍵は wrangler secret put ANTHROPIC_API_KEY で登録する（このファイルには書かない）
