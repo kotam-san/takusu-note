@@ -94,7 +94,7 @@ http://localhost:8768 を開き、「回答例で試す」を押すと、架空�
 ## テスト
 
 ```bash
-node --test tests/core.test.mjs
+node --test tests/core.test.mjs tests/worker.test.mjs
 ```
 
 ## これから
