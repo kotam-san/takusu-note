@@ -1,4 +1,4 @@
-// リーダーの育ち帳：画面の動き。
+// 託すノート：画面の動き。
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
@@ -8,7 +8,7 @@ import {
 import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
-const API_BASE = LOCAL ? "http://localhost:8787" : "https://leader-growth.kota-m.workers.dev";
+const API_BASE = LOCAL ? "http://localhost:8787" : "https://takusu-note.WORKERS_SUBDOMAIN.workers.dev";
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
 
 const app = document.getElementById("app");
@@ -48,7 +48,7 @@ function errorBox(msg) {
 
 // ---------------------------------------------------------------- 記録（このブラウザの中だけ）
 
-const key = (role) => `lg.v1.${role}`;
+const key = (role) => `tn.v1.${role}`;
 
 function load(role) {
   try {
@@ -116,7 +116,7 @@ function showStart() {
     h("button", { onclick: () => chooseRole(role) }, h("b", {}, ROLE_NAME[role]), desc);
 
   screen(
-    h("h1", {}, "リーダーの育ち帳"),
+    h("h1", {}, "託すノート"),
     h("p", { class: "lead" }, "社長の期待に、成果で応える幹部を育てるための試作です。診断で終わらず、答えるたびに問いが変わり、回を重ねるほど自分の状態が見えてきます。"),
     h("ol", { class: "flow" },
       h("li", {}, h("b", {}, "1"), "10の問いに答える"),
@@ -124,6 +124,7 @@ function showStart() {
       h("li", {}, h("b", {}, "3"), "3分コーチングで今週の一歩"),
       h("li", {}, h("b", {}, "4"), "次の回は、答えに合わせて問いが変わる"),
     ),
+    h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
     h("section", { class: "card" },
       h("h2", {}, "あなたの立場を選んでください"),
       h("div", { class: "role" },
@@ -155,7 +156,7 @@ function showHome() {
   const { rounds } = state.store;
   if (!rounds.length) return startRound();
   screen(
-    h("h1", {}, `${ROLE_NAME[state.role]}の育ち帳`),
+    h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
     growthCard(),
     h("div", { class: "row" },
@@ -380,11 +381,11 @@ function growthCard() {
   const rate = stepDoneRate(rounds);
   const code = encodePairCode(state.role, last.scores);
 
-  const other = h("input", { class: "code-in", placeholder: "LG1-L-2314", "aria-label": "相手の照合コード" });
+  const other = h("input", { class: "code-in", placeholder: "TN1-L-2314", "aria-label": "相手の照合コード" });
   const compareOut = h("div");
   const compare = () => {
     const decoded = decodePairCode(other.value);
-    if (!decoded) return compareOut.replaceChildren(errorBox("照合コードの形が違います（例：LG1-L-2314）。"));
+    if (!decoded) return compareOut.replaceChildren(errorBox("照合コードの形が違います（例：TN1-L-2314）。"));
     const rows = compareScores(last.scores, decoded.scores);
     compareOut.replaceChildren(
       h("table", {},

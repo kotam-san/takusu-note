@@ -1,4 +1,4 @@
-// Leader Growth の中継（Cloudflare Worker）。
+// 託すノートの中継（Cloudflare Worker）。
 // 画面から答えを受け取り、Claude に診断・教材・コーチングを作らせて返す。
 // 答えの本文はどこにも保存しない。数えるのは回数だけ（STATS）。
 

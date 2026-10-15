@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>託すノートの仕組み</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f6f5f1;--card:#ffffff;--ink:#1f2328;--sub:#59616b;--line:#cfccc3;
+  --accent:#2f5d50;--accent-soft:#e3eeea;--store:#fff7e6;--store-line:#d9b25c;--arrow:#8a9099;
+}
+@media (prefers-color-scheme:dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --bg:#141516;--card:#1c1e20;--ink:#e9e7e2;--sub:#a7adb5;--line:#3a3f45;
+    --accent:#8cc5b3;--accent-soft:#1f2e29;--store:#2a2416;--store-line:#9c7d34;--arrow:#7d838b;
+  }
+}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:20px;margin:0 0 4px}
+p{color:var(--sub);margin:0 0 16px}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--ink);font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+svg .sub{fill:var(--sub)}
+svg .head{font-weight:700}
+svg .box{fill:var(--card);stroke:var(--line);stroke-width:1.2}
+svg .key{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+svg .chip{fill:var(--card);stroke:var(--accent);stroke-width:1}
+svg .store{fill:var(--store);stroke:var(--store-line);stroke-width:1.2}
+svg .arrow{stroke:var(--arrow);stroke-width:1.6;fill:none}
+svg .loop{stroke:var(--accent);stroke-width:2;fill:none}
+svg .save{stroke:var(--store-line);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+svg .num{fill:var(--accent);font-weight:700}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<h1>1回の流れと、次の問いが変わる仕組み</h1>
+<p>答えは回ごとに記録に積み上がり、AIはその記録の4つの点を手がかりに、次の回の深掘りの問いを作り直します。</p>
+
+<svg viewBox="0 0 400 1010" role="img" aria-labelledby="t d">
+  <title id="t">1回の流れと、記録の積み上がり</title>
+  <desc id="d">答える、AIの見立てと学び、3分コーチング、次の問いをつくる、の4段階を回り、点数と一歩と次の問いが記録に残る。</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--arrow)"/>
+    </marker>
+    <marker id="ahl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="ahs" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--store-line)"/>
+    </marker>
+  </defs>
+
+  <!-- 1 答える -->
+  <rect class="box" x="44" y="10" width="300" height="150" rx="12"/>
+  <text x="60" y="36" class="head" font-size="15"><tspan class="num">1</tspan>　答える（10問＋ひとこと）</text>
+  <rect class="box" x="60" y="48" width="130" height="58" rx="8"/>
+  <text x="70" y="70" font-size="13" class="head">推移を見る4問</text>
+  <text x="70" y="92" font-size="12" class="sub">毎回同じ・点数に使う</text>
+  <rect class="key" x="198" y="48" width="130" height="58" rx="8"/>
+  <text x="208" y="70" font-size="13" class="head">深掘りの6問</text>
+  <text x="208" y="92" font-size="12" class="sub">毎回変わる</text>
+  <text x="60" y="128" font-size="12" class="sub">＋ いま引っかかっていること（自由記述）</text>
+  <text x="60" y="148" font-size="12" class="sub">＋ 前回の一歩は、やれたか</text>
+
+  <line class="arrow" x1="194" y1="160" x2="194" y2="186" marker-end="url(#ah)"/>
+
+  <!-- 2 見立てと学び -->
+  <rect class="box" x="44" y="190" width="300" height="106" rx="12"/>
+  <text x="60" y="216" class="head" font-size="15"><tspan class="num">2</tspan>　AIの見立てと、今日の学び</text>
+  <text x="60" y="242" font-size="12" class="sub">今の状態・4つの軸ごとの所見</text>
+  <text x="60" y="264" font-size="12" class="sub">いちばん伸びしろのある軸の、短い教材</text>
+  <text x="60" y="286" font-size="12" class="sub">＋ 理解を確かめる問い（3択）</text>
+
+  <line class="arrow" x1="194" y1="296" x2="194" y2="322" marker-end="url(#ah)"/>
+
+  <!-- 3 3分コーチング -->
+  <rect class="box" x="44" y="326" width="300" height="106" rx="12"/>
+  <text x="60" y="352" class="head" font-size="15"><tspan class="num">3</tspan>　3分コーチング</text>
+  <text x="60" y="378" font-size="12" class="sub">AIの問い → 本人が答える</text>
+  <text x="60" y="400" font-size="12" class="sub">→ 言葉を受け止めて、今週の一歩を3つ提案</text>
+  <text x="60" y="422" font-size="12" class="sub">→ 本人が1つ選ぶ</text>
+
+  <line class="arrow" x1="194" y1="432" x2="194" y2="458" marker-end="url(#ah)"/>
+
+  <!-- 4 次の問いをつくる -->
+  <rect class="key" x="44" y="462" width="300" height="236" rx="12"/>
+  <text x="60" y="488" class="head" font-size="15"><tspan class="num">4</tspan>　次の回の深掘り6問をつくる</text>
+  <text x="60" y="512" font-size="12" class="sub">AIが手がかりにする4つの点</text>
+  <rect class="chip" x="60" y="524" width="268" height="30" rx="6"/>
+  <text x="72" y="544" font-size="13">① 点数の低い軸に寄せる</text>
+  <rect class="chip" x="60" y="560" width="268" height="30" rx="6"/>
+  <text x="72" y="580" font-size="13">② 引っかかりに書いた言葉</text>
+  <rect class="chip" x="60" y="596" width="268" height="30" rx="6"/>
+  <text x="72" y="616" font-size="13">③ コーチングで答えたこと</text>
+  <rect class="chip" x="60" y="632" width="268" height="30" rx="6"/>
+  <text x="72" y="652" font-size="13">④ 前回の一歩をやれたか</text>
+  <text x="60" y="684" font-size="12" class="sub">問いごとに「〜という答えを受けて」を添える</text>
+
+  <!-- ループ：次の回へ -->
+  <path class="loop" d="M44,640 L22,640 L22,80 L40,80" marker-end="url(#ahl)"/>
+  <text x="16" y="370" font-size="12" fill="var(--accent)" transform="rotate(-90 16 370)" text-anchor="middle" style="fill:var(--accent);font-weight:700">次の回へ（週に1回）</text>
+
+  <!-- 記録へ保存（点線） -->
+  <path class="save" d="M344,78 L370,78 L370,790" marker-end="url(#ahs)"/>
+  <path class="save" d="M344,404 L370,404"/>
+  <path class="save" d="M344,600 L370,600"/>
+  <text x="378" y="250" font-size="11" class="sub" transform="rotate(90 378 250)" text-anchor="middle">記録に残す</text>
+
+  <!-- 積み上がる記録 -->
+  <rect class="store" x="44" y="730" width="330" height="200" rx="12"/>
+  <text x="60" y="758" class="head" font-size="15">積み上がる記録（このブラウザの中）</text>
+  <text x="60" y="786" font-size="13">回ごとの4軸の点数</text>
+  <text x="60" y="806" font-size="12" class="sub">→ 推移のグラフ（<tspan class="num">1</tspan> の推移4問から）</text>
+  <text x="60" y="836" font-size="13">これまでの一歩と、やれた率</text>
+  <text x="60" y="856" font-size="12" class="sub">→ 次の回の最初に確かめる（<tspan class="num">3</tspan> から）</text>
+  <text x="60" y="886" font-size="13">次の回の深掘り6問</text>
+  <text x="60" y="906" font-size="12" class="sub">→ 次の回の <tspan class="num">1</tspan> で出る（<tspan class="num">4</tspan> から）</text>
+
+  <!-- 照合 -->
+  <rect class="box" x="44" y="948" width="330" height="54" rx="12"/>
+  <text x="60" y="972" font-size="13" class="head">社長と幹部で見比べる</text>
+  <text x="60" y="992" font-size="12" class="sub">4軸の点数だけの照合コードを交換 → ずれが並ぶ</text>
+</svg>
+
+<p style="margin-top:16px"><a href="./">試作に戻る</a></p>
+</main>
+</body>
+</html>

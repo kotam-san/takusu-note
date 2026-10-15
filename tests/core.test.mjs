@@ -10,13 +10,13 @@ const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores
 
 test("照合コードは往復できる", () => {
   const code = encodePairCode("ceo", { A: 3, B: 2, C: 4, D: 1 });
-  assert.equal(code, "LG1-C-3241");
+  assert.equal(code, "TN1-C-3241");
   assert.deepEqual(decodePairCode(code), { role: "ceo", scores: { A: 3, B: 2, C: 4, D: 1 } });
-  assert.deepEqual(decodePairCode(" lg1-l-1111 "), { role: "leader", scores: { A: 1, B: 1, C: 1, D: 1 } });
+  assert.deepEqual(decodePairCode(" tn1-l-1111 "), { role: "leader", scores: { A: 1, B: 1, C: 1, D: 1 } });
 });
 
 test("照合コードの形が違えば null", () => {
-  for (const bad of ["", "LG1-C-325", "LG1-C-3250", "LG2-C-3241", "LG1-X-3241", null, "<script>"]) {
+  for (const bad of ["", "TN1-C-325", "TN1-C-3250", "TN2-C-3241", "TN1-X-3241", null, "<script>"]) {
     assert.equal(decodePairCode(bad), null, String(bad));
   }
   assert.throws(() => encodePairCode("ceo", { A: 5, B: 2, C: 4, D: 1 }));

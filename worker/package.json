@@ -1,5 +1,5 @@
 {
-  "name": "leader-growth-worker",
+  "name": "takusu-note-worker",
   "private": true,
   "type": "module",
   "scripts": {
