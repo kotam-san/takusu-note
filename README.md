@@ -104,3 +104,7 @@ node --test tests/core.test.mjs tests/worker.test.mjs
 - 社長と幹部が同じ会社で使うときの、ずれをもとにした対話の問い
 - 回を重ねた人への、学びの順番（カリキュラム）
 - コーチがクライアントの記録を見る画面（本人が渡したときだけ）
+
+## ライセンス
+
+MIT License（[LICENSE](LICENSE)）。誰でも使い、直し、配ることができます。
