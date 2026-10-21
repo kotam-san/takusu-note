@@ -117,22 +117,12 @@ function showStart() {
 
   screen(
     h("h1", {}, "託すノート"),
-    h("p", { class: "lead" }, "社長の期待に、成果で応える幹部を育てるための試作です。診断で終わらず、答えるたびに問いが変わり、回を重ねるほど自分の状態が見えてきます。"),
-    h("ol", { class: "flow" },
-      h("li", {}, h("b", {}, "1"), "10の問いに答える"),
-      h("li", {}, h("b", {}, "2"), "AIの見立てと今日の学び"),
-      h("li", {}, h("b", {}, "3"), "3分コーチングで今週の一歩"),
-      h("li", {}, h("b", {}, "4"), "次の回は、答えに合わせて問いが変わる"),
-    ),
-    h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
-    h("section", { class: "card" },
-      h("h2", {}, "あなたの立場を選んでください"),
-      h("div", { class: "role" },
-        roleButton("ceo", "任せ方・育て方を見直す"),
-        roleButton("leader", "任され方・動き方を見直す"),
-      ),
-      h("p", { class: "notice", style: "margin-top:16px" },
-        "答えと自由記述は、診断のために AI（Claude）へ送られます。サーバーには保存しません。実名や取引先の名前は書かないでください。"),
+    h("p", { class: "lead" },
+      h("span", { style: "display:inline-block" }, "答えるたびに問いが変わる、"),
+      h("span", { style: "display:inline-block" }, "社長と幹部のための毎週10分のノートです。")),
+    h("div", { class: "role" },
+      roleButton("ceo", "任せ方・育て方を見直す"),
+      roleButton("leader", "任され方・動き方を見直す"),
     ),
   );
 }
@@ -163,6 +153,7 @@ function showHome() {
       h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を始める`),
       h("button", { onclick: showStart }, "立場を選び直す"),
     ),
+    h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
   );
 }
 
