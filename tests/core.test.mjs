@@ -5,6 +5,7 @@ import {
   changeSinceFirst, compareScores, decodePairCode, emptyStore, encodePairCode,
   seriesByAxis, stepDoneRate, validateStore,
 } from "../docs/core.js";
+import { QUESTIONS } from "../docs/questions.js";
 
 const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores, step: "一歩", step_done: null, ...extra });
 
@@ -36,6 +37,26 @@ test("記録の検証：正しい形は通り、壊れた形は null", () => {
   assert.equal(validateStore({ version: 1, rounds: [round(1, { A: 0, B: 2, C: 3, D: 4 })] }), null);
   assert.equal(validateStore({ version: 1, rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 }, { step: "x".repeat(81) })] }), null);
   assert.equal(validateStore({ version: 1, rounds: [], next_deep: [{ axis: "Z", text: "a" }] }), null);
+});
+
+test("記録の検証：次回の例（next_examples）は4軸そろった短い文だけ通す", () => {
+  const ex = { A: "例：a", B: "例：b", C: "例：c", D: "例：d" };
+  const ok = { ...emptyStore(), next_examples: ex };
+  assert.equal(validateStore(ok), ok);
+  const old = { version: 1, rounds: [], next_deep: null }; // 例を持たない前からの記録も通る
+  assert.equal(validateStore(old), old);
+  assert.equal(validateStore({ ...ok, next_examples: { A: "例" } }), null);
+  assert.equal(validateStore({ ...ok, next_examples: { ...ex, D: "x".repeat(121) } }), null);
+  assert.equal(validateStore({ ...ok, next_examples: "例" }), null);
+});
+
+test("問い：推移を見る4問には、立場ごとに1回目用の例がそろっている", () => {
+  for (const role of ["ceo", "leader"]) {
+    for (const k of ["A", "B", "C", "D"]) {
+      assert.match(QUESTIONS[role].examples[k], /^例：/, `${role}.${k}`);
+      assert.ok(QUESTIONS[role].examples[k].length <= 120);
+    }
+  }
 });
 
 test("推移：系列・1回目からの変化・一歩をやれた率", () => {

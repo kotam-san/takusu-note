@@ -189,6 +189,7 @@ function showQuiz() {
   const round = state.store.rounds.length + 1;
   const q = QUESTIONS[role];
   const deepList = state.store.next_deep ?? q.deep;
+  const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
 
   const scaleFor = (name) =>
@@ -197,7 +198,11 @@ function showQuiz() {
         h("label", {}, h("input", { type: "radio", name, value: s.value }), h("span", {}, s.label))));
 
   const fixedBlocks = AXIS_KEYS.map((k) =>
-    h("div", { class: "q" }, h("div", { class: "axis" }, `推移を見る問い・${AXIS_NAMES[k]}`), q.fixed[k], scaleFor(`f-${k}`)));
+    h("div", { class: "q" },
+      h("div", { class: "axis" }, `推移を見る問い・${AXIS_NAMES[k]}`),
+      q.fixed[k],
+      h("div", { class: "example" }, examples[k]),
+      scaleFor(`f-${k}`)));
 
   const deepBlocks = deepList.map((d, i) =>
     h("div", { class: "q" },
@@ -275,25 +280,31 @@ function showDiagnosis() {
       },
     }, c));
 
-  const reply = h("textarea", { maxlength: "800", placeholder: "思いつくままで大丈夫です" });
+  // 候補から1つ選び、補足は自由に書く（広い問いにいきなり答えるのは難しいため）
+  const picks = d.coaching_choices.map((c, i) =>
+    h("label", {}, h("input", { type: "radio", name: "pick", value: String(i) }), h("span", {}, c)));
+  const reply = h("textarea", { maxlength: "700", placeholder: "補足があれば自由に（候補になければ、ここに書いてください）" });
   const err = h("div");
   const send = h("button", { class: "primary" }, "答えを送る");
-  const fillSample = h("button", { onclick: () => { reply.value = SAMPLE[state.role].reply; err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。")); } }, "回答例で試す");
+  const fillSample = h("button", { onclick: () => { app.querySelector("input[name=pick]").checked = true; reply.value = SAMPLE[state.role].reply; err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。")); } }, "回答例で試す");
 
   send.addEventListener("click", () => busy(send, "受け止めています…", async () => {
     err.replaceChildren();
-    if (!reply.value.trim()) {
-      err.append(errorBox("ひとことでも書いてみてください。"));
+    const picked = d.coaching_choices[Number(app.querySelector("input[name=pick]:checked")?.value)];
+    const note = reply.value.trim();
+    if (!picked && !note) {
+      err.append(errorBox("候補を1つ選ぶか、ひとことでも書いてみてください。"));
       return;
     }
+    const answer = [picked ? `選んだ候補：${picked.slice(0, 80)}` : "", note ? `補足：${note}` : ""].filter(Boolean).join("\n");
     const c = state.current;
     try {
       const out = await api("/api/coach", {
-        role: state.role, question: d.coaching_question, reply: reply.value.trim(),
+        role: state.role, question: d.coaching_question, reply: answer,
         summary: d.summary, concern: c.concern, fixed: c.fixed,
         history: c.history, prev_step: c.prev_step,
       });
-      c.coaching = { question: d.coaching_question, reply: reply.value.trim(), ...out };
+      c.coaching = { question: d.coaching_question, reply: answer, ...out };
       showSteps();
     } catch (e) {
       err.append(errorBox(e.message));
@@ -313,6 +324,7 @@ function showDiagnosis() {
     h("section", { class: "card" },
       h("h2", {}, "3分コーチング"),
       h("p", { class: "lesson" }, d.coaching_question),
+      h("div", { class: "steps" }, picks),
       reply,
       h("div", { class: "row" }, send, fillSample),
       err),
@@ -337,6 +349,7 @@ function showSteps() {
     const scores = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.fixed[k].score]));
     state.store.rounds.push({ round: c.round, date: new Date().toISOString().slice(0, 10), scores, step: step.slice(0, 80), step_done: null });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
+    state.store.next_examples = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.coaching.fixed_examples[k].slice(0, 120)]));
     const ok = save();
     showDone(ok);
   };

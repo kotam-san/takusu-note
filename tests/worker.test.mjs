@@ -1,7 +1,8 @@
 // 中継の入口の検証（AI は呼ばない）。実行：node --test tests/worker.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker from "../worker/src/index.js";
+import worker, { validCoaching, validDiagnosis } from "../worker/src/index.js";
+import { COACH_SCHEMA, DIAGNOSE_SCHEMA, coachSystem, diagnoseSystem } from "../worker/src/prompts.js";
 
 const ORIGIN = "https://kotam-san.github.io";
 const env = { ALLOWED_ORIGINS: ORIGIN, DAILY_CAP: "300" };
@@ -90,4 +91,34 @@ test("stats は回数だけを返す", async () => {
     "completion_rate", "returning_rate", "rounds_completed", "rounds_returning", "rounds_started",
     "step_done", "step_done_rate", "step_not_done",
   ]);
+});
+
+test("指示：問いは場面を1つに絞り、候補と推移4問の例を作らせる", () => {
+  for (const role of ["ceo", "leader"]) {
+    assert.match(diagnoseSystem(role), /場面を1つに絞る/);
+    assert.match(diagnoseSystem(role), /coaching_choices/);
+    assert.match(coachSystem(role), /場面を1つに絞る/);
+    assert.match(coachSystem(role), /fixed_examples/);
+  }
+  assert.ok(DIAGNOSE_SCHEMA.required.includes("coaching_choices"));
+  assert.deepEqual(COACH_SCHEMA.properties.fixed_examples.required, ["A", "B", "C", "D"]);
+});
+
+test("AI の出力の形：候補が2〜3個・例が4軸そろっていなければ通さない", () => {
+  const diag = {
+    summary: "s", axis_notes: [1, 2, 3, 4], coaching_question: "q", coaching_choices: ["a", "b"],
+    lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
+  };
+  assert.equal(validDiagnosis(diag), true);
+  assert.equal(validDiagnosis({ ...diag, coaching_choices: ["a"] }), false);
+  assert.equal(validDiagnosis({ ...diag, coaching_choices: ["a", "b", "c", "d"] }), false);
+  assert.equal(validDiagnosis({ ...diag, coaching_choices: ["a", " "] }), false);
+
+  const coaching = {
+    reflection: "r", step_options: [1, 2, 3], next_questions: [1, 2, 3, 4, 5, 6],
+    fixed_examples: { A: "例：a", B: "例：b", C: "例：c", D: "例：d" },
+  };
+  assert.equal(validCoaching(coaching), true);
+  assert.equal(validCoaching({ ...coaching, fixed_examples: { A: "例：a" } }), false);
+  assert.equal(validCoaching({ ...coaching, fixed_examples: undefined }), false);
 });

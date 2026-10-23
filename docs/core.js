@@ -53,11 +53,14 @@ export function validateStore(data) {
       if (!AXIS_KEYS.includes(q?.axis) || !isStr(q?.text, 120) || !isStr(q?.because ?? "", 120)) return null;
     }
   }
+  if (data.next_examples != null) {
+    if (typeof data.next_examples !== "object" || !AXIS_KEYS.every((k) => isStr(data.next_examples[k], 120))) return null;
+  }
   return data;
 }
 
 export function emptyStore() {
-  return { version: STORE_VERSION, rounds: [], next_deep: null };
+  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null };
 }
 
 // ---------------------------------------------------------------- 推移

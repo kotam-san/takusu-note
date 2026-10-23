@@ -96,10 +96,7 @@ async function diagnose(body, env) {
   ];
 
   const out = await callClaude(env, diagnoseSystem(role), lines.join("\n"), DIAGNOSE_SCHEMA, 6000);
-  if (out.axis_notes?.length !== 4 || out.lesson?.check?.choices?.length !== 3 ||
-      ![0, 1, 2].includes(out.lesson.check.answer_index) || !out.coaching_question) {
-    throw new OutputError("diagnose shape");
-  }
+  if (!validDiagnosis(out)) throw new OutputError("diagnose shape");
 
   await count(env, "rounds_started");
   if (round >= 2) await count(env, "rounds_returning");
@@ -127,7 +124,8 @@ async function coach(body, env) {
     history.length ? history.map(fmtHistory).join("\n") : "（初回）",
     prev ? `前回の一歩「${prev.text}」→ ${prev.done === true ? "やれた" : prev.done === false ? "やれなかった" : "未回答"}` : "",
     `今回の見立て：${summary}`,
-    "推移用の4問の点数：" + AXIS_KEYS.map((k) => `${k}=${fixed[k].score}`).join(" "),
+    "推移用の4問：",
+    ...AXIS_KEYS.map((k) => `- ${k}：${fixed[k].text} → ${fixed[k].score}`),
     "</history>",
     "",
     "<concern>",
@@ -142,11 +140,25 @@ async function coach(body, env) {
   ].join("\n");
 
   const out = await callClaude(env, coachSystem(role), content, COACH_SCHEMA, 4000);
-  if (out.step_options?.length !== 3 || out.next_questions?.length !== 6 || !out.reflection) {
-    throw new OutputError("coach shape");
-  }
+  if (!validCoaching(out)) throw new OutputError("coach shape");
   await count(env, "rounds_completed");
   return out;
+}
+
+// ---------------------------------------------------------------- AI の出力の形
+
+const filled = (v) => typeof v === "string" && v.trim() !== "";
+
+export function validDiagnosis(out) {
+  const n = out?.coaching_choices?.length;
+  return out?.axis_notes?.length === 4 && out.lesson?.check?.choices?.length === 3 &&
+    [0, 1, 2].includes(out.lesson.check.answer_index) && filled(out.coaching_question) &&
+    n >= 2 && n <= 3 && out.coaching_choices.every(filled);
+}
+
+export function validCoaching(out) {
+  return out?.step_options?.length === 3 && out.next_questions?.length === 6 && filled(out.reflection) &&
+    AXIS_KEYS.every((k) => filled(out.fixed_examples?.[k]));
 }
 
 // ---------------------------------------------------------------- Claude を呼ぶ

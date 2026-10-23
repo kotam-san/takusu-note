@@ -42,7 +42,10 @@ export function diagnoseSystem(role) {
    - title：20字以内
    - body：300〜450字。考え方1つと、明日できる具体的なやり方1つ
    - check：教材の理解を確かめる3択の問い（question・choices 3つ・answer_index 0〜2・explanation 60字以内）
-4. coaching_question：3分コーチングの最初の問いを1つ。相手の「いちばん引っかかっていること」と弱い軸につながる、開いた問い（はい・いいえで終わらない）`;
+4. coaching_question：3分コーチングの最初の問いを1つ。相手の「いちばん引っかかっていること」と弱い軸につながる、開いた問い（はい・いいえで終わらない）
+   - 場面を1つに絞る。いつ・どの仕事・誰との間のことかが分かる形にし、仕事全体を広く聞かない
+   - 候補は問いの文に書かず、次の coaching_choices に分ける
+5. coaching_choices：coaching_question への答えの候補を2〜3個（各40字以内）。相手の答えや引っかかりに出てきた言葉から作った具体的なもの。相手はここから1つ選び、補足は自由に書く`;
 }
 
 export function coachSystem(role) {
@@ -59,7 +62,11 @@ export function coachSystem(role) {
    - 次の4つを手がかりにする：①点数の低い軸 ②引っかかりに書いた言葉 ③コーチングでの答え ④前回の一歩をやれたか（<history>）
    - axis：A〜D のどれを深掘りするか
    - text：問い（50字以内）
-   - because：なぜこの問いにしたか。「〜という答えを受けて」の形で、相手の答えのどこを受けたかを示す（50字以内）`;
+   - because：なぜこの問いにしたか。「〜という答えを受けて」の形で、相手の答えのどこを受けたかを示す（50字以内）
+   - 1つの問いでは場面を1つに絞る（「この1週間、〇〇を任せたとき」のように、いつ・どの仕事かが分かる形）。仕事全体を広く聞かない
+4. fixed_examples：次回の「推移を見る4問」（<history> にある A〜D の文。文そのものは変えない）の下に添える例を、軸ごとに1つずつ（各60字以内・「例：」で始める）
+   - 相手の状況（引っかかり・コーチングでの答え・今週の一歩）から、その問いに答えるときに思い浮かべる具体的な場面を1つ選んで作る
+   - 「〜したかどうか」の形で書き、相手が書いていない出来事を起きたことのように書かない`;
 }
 
 const STEP_SCHEMA = { type: "string" };
@@ -99,8 +106,9 @@ export const DIAGNOSE_SCHEMA = {
       additionalProperties: false,
     },
     coaching_question: { type: "string" },
+    coaching_choices: { type: "array", items: { type: "string" } },
   },
-  required: ["summary", "axis_notes", "lesson", "coaching_question"],
+  required: ["summary", "axis_notes", "lesson", "coaching_question", "coaching_choices"],
   additionalProperties: false,
 };
 
@@ -122,7 +130,13 @@ export const COACH_SCHEMA = {
         additionalProperties: false,
       },
     },
+    fixed_examples: {
+      type: "object",
+      properties: Object.fromEntries(["A", "B", "C", "D"].map((k) => [k, { type: "string" }])),
+      required: ["A", "B", "C", "D"],
+      additionalProperties: false,
+    },
   },
-  required: ["reflection", "step_options", "next_questions"],
+  required: ["reflection", "step_options", "next_questions", "fixed_examples"],
   additionalProperties: false,
 };
