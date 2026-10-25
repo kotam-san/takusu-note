@@ -2,8 +2,7 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, changeSinceFirst, compareScores, decodePairCode, emptyStore,
-  encodePairCode, seriesByAxis, stepDoneRate, validateStore,
+  AXIS_KEYS, changeSinceFirst, emptyStore, seriesByAxis, stepDoneRate, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE, firstRound } from "./questions.js";
@@ -182,10 +181,10 @@ function showProfile() {
   };
   // 社長には役職を聞かない（社長だと分かっているため）
   const title = role === "leader"
-    ? h("input", { class: "code-in", maxlength: String(TITLE_MAX), value: p?.title ?? "", placeholder: "例：工場長", "aria-label": "役職" })
+    ? h("input", { class: "text-in", maxlength: String(TITLE_MAX), value: p?.title ?? "", placeholder: "例：工場長", "aria-label": "役職" })
     : null;
   // 業種で「その他」を選んだときだけ、自分で書く欄を出す
-  const industryOther = h("input", { class: "code-in", maxlength: String(INDUSTRY_OTHER_MAX), value: p?.industry_other ?? "", placeholder: "例：印刷", "aria-label": "業種（その他）" });
+  const industryOther = h("input", { class: "text-in", maxlength: String(INDUSTRY_OTHER_MAX), value: p?.industry_other ?? "", placeholder: "例：印刷", "aria-label": "業種（その他）" });
   const otherRow = h("div", { style: "margin-top:8px" }, "業種を書いてください：", industryOther);
   const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
   const concern = first
@@ -472,30 +471,13 @@ function showDone(saved) {
   );
 }
 
-// ---------------------------------------------------------------- 5. 育ちの記録・照合
+// ---------------------------------------------------------------- 5. 育ちの記録
 
 function growthCard() {
   const rounds = state.store.rounds;
   if (!rounds.length) return null;
-  const last = rounds.at(-1);
   const change = changeSinceFirst(rounds);
   const rate = stepDoneRate(rounds);
-  const code = encodePairCode(state.role, last.scores);
-
-  const other = h("input", { class: "code-in", placeholder: "TN1-L-2314", "aria-label": "相手の照合コード" });
-  const compareOut = h("div");
-  const compare = () => {
-    const decoded = decodePairCode(other.value);
-    if (!decoded) return compareOut.replaceChildren(errorBox("照合コードの形が違います（例：TN1-L-2314）。"));
-    const rows = compareScores(last.scores, decoded.scores);
-    compareOut.replaceChildren(
-      h("table", {},
-        h("tr", {}, h("th", {}, "軸"), h("th", {}, `あなた（${ROLE_NAME[state.role]}）`), h("th", {}, `相手（${ROLE_NAME[decoded.role]}）`), h("th", {}, "ずれ")),
-        rows.map((r) => h("tr", {},
-          h("td", {}, AXIS_NAMES[r.axis]), h("td", {}, r.mine), h("td", {}, r.theirs),
-          h("td", { class: Math.abs(r.gap) >= 2 ? "gap-big" : "" }, r.gap > 0 ? `+${r.gap}` : r.gap)))),
-      h("p", { class: "notice", style: "margin-top:8px" }, "ずれが2以上の軸は、同じ場面を違って見ている可能性があります。どちらが正しいかではなく、話すきっかけに使ってください。"));
-  };
 
   const reset = () => {
     if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。よろしいですか？`)) return;
@@ -514,11 +496,6 @@ function growthCard() {
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）" : r.step_done === false ? "（やれなかった）" : "（次の回で確認）"))),
-    h("h3", {}, "社長と幹部で見比べる"),
-    h("p", { class: "notice" }, "あなたの照合コードを相手に渡し、相手のコードを入れると、4つの軸の見え方のずれが並びます。コードに入っているのは最新の4軸の点数だけです（自由記述は入りません）。改ざん防止や本人確認はしません。"),
-    h("p", {}, "あなたのコード：", h("span", { class: "code" }, code)),
-    h("div", { class: "row" }, other, h("button", { onclick: compare }, "見比べる")),
-    compareOut,
     h("div", { class: "row", style: "margin-top:20px" }, h("button", { onclick: reset }, "記録をすべて消す")),
   );
 }

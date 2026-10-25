@@ -1,36 +1,9 @@
-// 画面に依存しない計算（テスト対象）：記録の検証、照合コード、推移。
+// 画面に依存しない計算（テスト対象）：記録の検証、推移。
 
 import { validateProfile } from "./profile.js";
 
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
-
-// ---------------------------------------------------------------- 照合コード
-// 形式：TN1-<立場 C|L>-<A><B><C><D>  例：TN1-C-3241
-// 中身は4軸の点数だけ。改ざん防止や本人確認はしない（画面にもそう書く）。
-
-export function encodePairCode(role, scores) {
-  const r = role === "ceo" ? "C" : role === "leader" ? "L" : null;
-  if (!r) throw new Error("role");
-  const digits = AXIS_KEYS.map((k) => {
-    const v = scores?.[k];
-    if (!Number.isInteger(v) || v < 1 || v > 4) throw new Error("score");
-    return String(v);
-  });
-  return `TN1-${r}-${digits.join("")}`;
-}
-
-export function decodePairCode(code) {
-  const m = /^TN1-([CL])-([1-4]{4})$/.exec(String(code ?? "").trim().toUpperCase());
-  if (!m) return null;
-  const scores = Object.fromEntries(AXIS_KEYS.map((k, i) => [k, Number(m[2][i])]));
-  return { role: m[1] === "C" ? "ceo" : "leader", scores };
-}
-
-// 自分と相手の点数を並べ、ずれ（自分−相手）を出す
-export function compareScores(mine, theirs) {
-  return AXIS_KEYS.map((k) => ({ axis: k, mine: mine[k], theirs: theirs[k], gap: mine[k] - theirs[k] }));
-}
 
 // ---------------------------------------------------------------- 記録の形の検証
 // localStorage は利用者も書き換えられるので、読み込むたびに形と範囲を確かめる。
