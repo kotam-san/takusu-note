@@ -5,11 +5,15 @@ import {
   AXIS_KEYS, changeSinceFirst, compareScores, decodePairCode, emptyStore,
   encodePairCode, seriesByAxis, stepDoneRate, validateStore,
 } from "./core.js";
-import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE } from "./questions.js";
+import { PROFILE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
+import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE, firstRound } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const API_BASE = LOCAL ? "http://localhost:8787" : "https://takusu-note.kota-m.workers.dev";
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
+
+// 1回目の深掘りと例は、プロフィールと引っかかりを AI に渡して作る（A）。
+// AI が使えないときだけ、用意した問いの出し分け（B・firstRound）で始める。2026-10-25 に A・B を見比べて決めた。
 
 const app = document.getElementById("app");
 let state = { role: null, store: null, current: null };
@@ -144,7 +148,7 @@ function chooseRole(role) {
 
 function showHome() {
   const { rounds } = state.store;
-  if (!rounds.length) return startRound();
+  if (!rounds.length) return state.store.profile ? startRound() : showProfile();
   screen(
     h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
@@ -152,9 +156,84 @@ function showHome() {
     h("div", { class: "row" },
       h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を始める`),
       h("button", { onclick: showStart }, "立場を選び直す"),
+      h("button", { onclick: showProfile }, "プロフィールを直す"),
     ),
     h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
   );
+}
+
+// ---------------------------------------------------------------- 2.5 プロフィール（はじめての1回・あとから直せる）
+
+function showProfile() {
+  const role = state.role;
+  const p = state.store.profile;
+  const first = !state.store.rounds.length;
+  const choiceGroup = (key) => {
+    const f = PROFILE_FIELDS[key];
+    const label = typeof f.label === "string" ? f.label : f.label[role];
+    return h("div", { class: "q" }, label,
+      h("div", { class: "scale", role: "radiogroup" },
+        f.options.map((o) => h("label", {},
+          h("input", { type: "radio", name: `p-${key}`, value: o.value, checked: p?.[key] === o.value }),
+          h("span", {}, o.label)))));
+  };
+  const title = h("input", { class: "code-in", maxlength: String(TITLE_MAX), value: p?.title ?? "", placeholder: role === "ceo" ? "例：代表取締役" : "例：工場長", "aria-label": "役職" });
+  const concern = first
+    ? h("textarea", { maxlength: "400", placeholder: role === "ceo" ? "例：任せたいのに、結局自分が決めてしまう" : "例：社長が何を目指しているのか分からないまま動いている" })
+    : null;
+  if (concern) concern.value = state.store.first_concern ?? "";
+  const err = h("div");
+  const submit = h("button", { class: "primary" }, first ? "1回目の問いを作る" : "保存する");
+
+  submit.addEventListener("click", () => busy(submit, first ? "AIが1回目の問いを作っています…" : "保存しています…", async () => {
+    err.replaceChildren();
+    const pick = (key) => app.querySelector(`input[name=p-${key}]:checked`)?.value;
+    const profile = validateProfile({ title: title.value, reports: pick("reports"), years: pick("years"), industry: pick("industry") });
+    if (!profile) {
+      err.append(errorBox("役職のほかは、すべて選んでください。"));
+      return;
+    }
+    state.store.profile = profile;
+    if (!first) {
+      save();
+      return showHome();
+    }
+    state.store.first_concern = concern.value.trim() || null;
+    const made = await makeFirstRound(role, profile, state.store.first_concern);
+    state.store.next_deep = made.deep;
+    state.store.next_examples = made.examples;
+    save();
+    showQuiz();
+  }));
+
+  screen(
+    h("h1", {}, first ? "はじめに、あなたのことを" : "プロフィールを直す"),
+    h("p", { class: "lead" }, first
+      ? "1回目の問いを、あなたの立場と職場に合わせて作ります。会社名や人の名前は聞きません。"
+      : "直した内容は、次の回から AI の見立てに使います。"),
+    h("section", { class: "card" },
+      h("div", { class: "q" }, "役職（任意）", h("div", {}, title)),
+      ["reports", "years", "industry"].map(choiceGroup)),
+    concern ? h("section", { class: "card" },
+      h("h2", {}, "いま、いちばん引っかかっていること（任意）"),
+      h("p", { class: "notice" }, "書いてもらうと、1回目の問いをそこに寄せて作ります。実名や取引先の名前は書かないでください。"),
+      concern) : null,
+    h("div", { class: "row" }, submit, first ? null : h("button", { onclick: showHome }, "やめる")),
+    err,
+  );
+}
+
+// 1回目の深掘り6問と例。A は AI に作らせ、失敗したら B（出し分け）で続ける
+async function makeFirstRound(role, profile, concern) {
+  try {
+    const out = await api("/api/start", { role, profile, concern: concern ?? "" });
+    return {
+      deep: out.next_questions.map(({ axis, text, because }) => ({ axis, text, because })),
+      examples: Object.fromEntries(AXIS_KEYS.map((k) => [k, out.fixed_examples[k].slice(0, 120)])),
+    };
+  } catch {
+    return firstRound(role, profile);
+  }
 }
 
 // ---------------------------------------------------------------- 3. 問い
@@ -212,6 +291,7 @@ function showQuiz() {
       scaleFor(`d-${i}`)));
 
   const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう" });
+  if (round === 1) concern.value = state.store.first_concern ?? ""; // はじめに書いたものを入れておき、直せるようにする
   const err = h("div");
   const submit = h("button", { class: "primary" }, "AIの見立てを見る");
 
@@ -234,7 +314,7 @@ function showQuiz() {
     }
     const last = state.store.rounds.at(-1);
     const body = {
-      role, round, fixed, deep, concern: concern.value.trim(),
+      role, round, fixed, deep, concern: concern.value.trim(), profile: state.store.profile,
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
     };
@@ -249,7 +329,9 @@ function showQuiz() {
 
   screen(
     h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
-    adaptive ? h("p", { class: "lead" }, "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
+    adaptive ? h("p", { class: "lead" }, round === 1
+      ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
+      : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
     h("section", { class: "card" }, h("h2", {}, "毎回同じ4つの問い"), h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。"), fixedBlocks),
     h("section", { class: "card" }, h("h2", {}, adaptive ? "今回の深掘り" : "深掘りの問い"), deepBlocks),
     h("section", { class: "card" },
@@ -300,7 +382,7 @@ function showDiagnosis() {
     const c = state.current;
     try {
       const out = await api("/api/coach", {
-        role: state.role, question: d.coaching_question, reply: answer,
+        role: state.role, question: d.coaching_question, reply: answer, profile: state.store.profile,
         summary: d.summary, concern: c.concern, fixed: c.fixed,
         history: c.history, prev_step: c.prev_step,
       });

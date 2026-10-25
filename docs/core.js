@@ -1,5 +1,7 @@
 // 画面に依存しない計算（テスト対象）：記録の検証、照合コード、推移。
 
+import { validateProfile } from "./profile.js";
+
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
 
@@ -53,6 +55,8 @@ export function validateStore(data) {
       if (!AXIS_KEYS.includes(q?.axis) || !isStr(q?.text, 120) || !isStr(q?.because ?? "", 120)) return null;
     }
   }
+  if (data.profile != null && !validateProfile(data.profile)) return null;
+  if (data.first_concern != null && !isStr(data.first_concern, 400)) return null;
   if (data.next_examples != null) {
     if (typeof data.next_examples !== "object" || !AXIS_KEYS.every((k) => isStr(data.next_examples[k], 120))) return null;
   }
@@ -60,7 +64,7 @@ export function validateStore(data) {
 }
 
 export function emptyStore() {
-  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null };
+  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null };
 }
 
 // ---------------------------------------------------------------- 推移

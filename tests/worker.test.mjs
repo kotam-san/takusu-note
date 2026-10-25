@@ -88,7 +88,7 @@ test("stats は回数だけを返す", async () => {
   const res = await call("/api/stats", { method: "GET" });
   const data = await res.json();
   assert.deepEqual(Object.keys(data).sort(), [
-    "completion_rate", "returning_rate", "rounds_completed", "rounds_returning", "rounds_started",
+    "completion_rate", "returning_rate", "rounds_completed", "rounds_profiled", "rounds_returning", "rounds_started",
     "step_done", "step_done_rate", "step_not_done",
   ]);
 });
@@ -115,7 +115,7 @@ test("AI の出力の形：候補が2〜3個・例が4軸そろっていなけ�
   assert.equal(validDiagnosis({ ...diag, coaching_choices: ["a", " "] }), false);
 
   const coaching = {
-    reflection: "r", step_options: [1, 2, 3], next_questions: [1, 2, 3, 4, 5, 6],
+    reflection: "r", step_options: [1, 2, 3], next_questions: ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: "q", because: "b" })),
     fixed_examples: { A: "例：a", B: "例：b", C: "例：c", D: "例：d" },
   };
   assert.equal(validCoaching(coaching), true);
