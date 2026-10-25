@@ -164,11 +164,15 @@ const INDUSTRY_EXAMPLES = {
   },
 };
 
+// 社長は従業員数で、幹部は直属の部下の数で、規模の小さい／大きいを見る
+const small = (role, p) => (role === "ceo" ? p.employees === "1-5" : p.reports === "0");
+const large = (role, p) => (role === "ceo" ? ["51-100", "101+"].includes(p.employees) : p.reports === "11+");
+
 // 深掘りの差し替え。上から順に当て、同じ位置は後の規則が上書きする（経験年数の規則は文の言い換え）。
 const DEEP_RULES = [
   {
-    // 部下のいない社長：「幹部」を前提にせず、社員や外注先を相手にする
-    when: (role, p) => role === "ceo" && p.reports === "0",
+    // 従業員が数人の社長：「幹部」を前提にせず、社員や外注先を相手にする
+    when: (role, p) => role === "ceo" && small(role, p),
     set: {
       1: "社員や外注先が自分なりのやり方で進めることを、安心して見ていられる",
       2: "日常の判断の多くは、社員や外注先が自分で決めている",
@@ -178,12 +182,12 @@ const DEEP_RULES = [
   },
   {
     // 部下のいない幹部：部下に説明する場面を、同僚や後輩に置き換える
-    when: (role, p) => role === "leader" && p.reports === "0",
+    when: (role, p) => role === "leader" && small(role, p),
     set: { 5: "会社の業績や計画を、自分の言葉で同僚や後輩に説明できる" },
   },
   {
-    // 部下が多い：決めたことが人を介して届く場面を聞く
-    when: (role, p) => p.reports === "11+",
+    // 人が多い：決めたことが人を介して届く場面を聞く
+    when: (role, p) => large(role, p),
     set: {
       ceo: { 3: "会議で決めたことが、幹部を通して現場まで伝わり、翌週には動いている" },
       leader: { 3: "会議で決まったことを、自分の部下まで伝え、翌週には動かしている" },
@@ -192,7 +196,7 @@ const DEEP_RULES = [
   {
     // 社長歴が長い：長く自分でやってきた仕事を手放せるか
     when: (role, p) => role === "ceo" && p.years === "10+",
-    set: (p) => ({ 1: `長く自分でやってきた仕事を、${p.reports === "0" ? "社員や外注先" : "幹部"}が自分なりのやり方で進めても、安心して見ていられる` }),
+    set: (p) => ({ 1: `長く自分でやってきた仕事を、${small("ceo", p) ? "社員や外注先" : "幹部"}が自分なりのやり方で進めても、安心して見ていられる` }),
   },
   {
     // 今の立場になって1年未満：最初に任せた／任された仕事に寄せ、振り返る期間を短くする
@@ -217,8 +221,8 @@ export function firstRound(role, profile) {
     if (rule.rewrite) deep.forEach((d) => (d.text = rule.rewrite(d.text)));
   }
   const examples = { ...(INDUSTRY_EXAMPLES[role][profile.industry] ?? base.examples) };
-  // 部下のいない社長には、例でも「幹部」を前提にしない
-  if (role === "ceo" && profile.reports === "0") {
+  // 従業員が数人の社長には、例でも「幹部」を前提にしない
+  if (role === "ceo" && small(role, profile)) {
     for (const k of Object.keys(examples)) examples[k] = examples[k].replaceAll("幹部", "社員");
   }
   return { deep, examples };

@@ -1,8 +1,19 @@
 // はじめて使うときに聞く、本人のこと（プロフィール）。
 // 画面・中継・Claude Code 版のどれからも使えるよう、画面に依存しない形で置く。
-// 会社名や人の名前は聞かない。役職だけ短い自由記述で、あとは選ぶだけ。
+// 会社名や人の名前は聞かない。自由記述は、幹部の役職と「その他」の業種の短い1行だけで、あとは選ぶだけ。
+// 社長には役職を聞かず、部下の数の代わりに従業員数を聞く（2026-10-25 作者が試して）。
 
 export const PROFILE_FIELDS = {
+  employees: {
+    label: "従業員数",
+    options: [
+      { value: "1-5", label: "1〜5人" },
+      { value: "6-20", label: "6〜20人" },
+      { value: "21-50", label: "21〜50人" },
+      { value: "51-100", label: "51〜100人" },
+      { value: "101+", label: "101人以上" },
+    ],
+  },
   reports: {
     label: "直属の部下の数",
     options: [
@@ -35,29 +46,45 @@ export const PROFILE_FIELDS = {
   },
 };
 
-export const TITLE_MAX = 20;
-const CHOICE_KEYS = ["reports", "years", "industry"];
+// 立場ごとに選んでもらう項目（並び順は画面の順）
+export const ROLE_FIELDS = {
+  ceo: ["employees", "years", "industry"],
+  leader: ["reports", "years", "industry"],
+};
+
+export const TITLE_MAX = 20; // 幹部の役職
+export const INDUSTRY_OTHER_MAX = 20; // 業種で「その他」を選んだときの記入
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
 
 const labelOf = (field, value) => PROFILE_FIELDS[field].options.find((o) => o.value === value)?.label;
+const shortText = (v, max) => (v ?? "") === "" || (typeof v === "string" && v.length <= max);
 
-// 形と範囲が正しければ整えた写しを、そうでなければ null を返す
-export function validateProfile(p) {
+// 形と範囲が正しければ整えた写しを、そうでなければ null を返す。
+// role を渡さないとき（記録の読み込み）は、どちらかの立場の形になっていれば通す。
+export function validateProfile(p, role) {
   if (!p || typeof p !== "object") return null;
-  const title = p.title ?? "";
-  if (typeof title !== "string" || title.length > TITLE_MAX) return null;
-  for (const k of CHOICE_KEYS) if (!labelOf(k, p[k])) return null;
-  return { title: title.trim(), reports: p.reports, years: p.years, industry: p.industry };
+  if (!role) return validateProfile(p, "ceo") ?? validateProfile(p, "leader");
+  if (!ROLE_FIELDS[role]) return null;
+  if (!shortText(p.title, TITLE_MAX) || !shortText(p.industry_other, INDUSTRY_OTHER_MAX)) return null;
+  const out = {};
+  for (const k of ROLE_FIELDS[role]) {
+    if (!labelOf(k, p[k])) return null;
+    out[k] = p[k];
+  }
+  if (role === "leader") out.title = (p.title ?? "").trim();
+  out.industry_other = p.industry === "other" ? (p.industry_other ?? "").trim() : "";
+  return out;
 }
 
-// AI に渡す1行。例：「幹部・工場長・直属の部下4〜10人・リーダー以上の立場の経験年数1〜3年・業種は製造」
+// AI に渡す1行。例：「社長・従業員21〜50人・社長になってからの年数1〜3年・業種は製造」
+//                  「幹部・工場長・直属の部下4〜10人・リーダー以上の立場の経験年数1〜3年・業種はその他（印刷）」
 export function profileText(p, role) {
-  const years = PROFILE_FIELDS.years.label[role];
+  const industry = p.industry === "other" && p.industry_other ? `その他（${p.industry_other}）` : labelOf("industry", p.industry);
   return [
     ROLE_NAME[role],
-    p.title || null,
-    `直属の部下${labelOf("reports", p.reports)}`,
-    `${years}${labelOf("years", p.years)}`,
-    `業種は${labelOf("industry", p.industry)}`,
+    role === "leader" ? p.title || null : null,
+    role === "ceo" ? `従業員${labelOf("employees", p.employees)}` : `直属の部下${labelOf("reports", p.reports)}`,
+    `${PROFILE_FIELDS.years.label[role]}${labelOf("years", p.years)}`,
+    `業種は${industry}`,
   ].filter(Boolean).join("・");
 }

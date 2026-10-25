@@ -67,7 +67,7 @@ export default {
 
 async function start(body, env) {
   const role = checkRole(body.role);
-  const profile = checkProfile(body.profile);
+  const profile = checkProfile(body.profile, role);
   const concern = checkText(body.concern ?? "", 400, "concern");
   const content = startContent(profileText(profile, role), QUESTIONS[role].fixed, concern);
   const out = await callClaude(env, startSystem(role), content, START_SCHEMA, 3000);
@@ -92,7 +92,7 @@ async function diagnose(body, env) {
   const prev = body.prev_step
     ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
     : null;
-  const profile = body.profile == null ? null : checkProfile(body.profile);
+  const profile = body.profile == null ? null : checkProfile(body.profile, role);
 
   const lines = [
     ...profileBlock(profile, role),
@@ -138,7 +138,7 @@ async function coach(body, env) {
   const prev = body.prev_step
     ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
     : null;
-  const profile = body.profile == null ? null : checkProfile(body.profile);
+  const profile = body.profile == null ? null : checkProfile(body.profile, role);
 
   const content = [
     ...profileBlock(profile, role),
@@ -248,8 +248,8 @@ function checkFixed(v) {
   }
   return out;
 }
-function checkProfile(v) {
-  const p = validateProfile(v);
+function checkProfile(v, role) {
+  const p = validateProfile(v, role);
   if (!p) throw new InputError("profile の形か選択肢が違います");
   return p;
 }

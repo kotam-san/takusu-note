@@ -5,7 +5,7 @@ import {
   AXIS_KEYS, changeSinceFirst, compareScores, decodePairCode, emptyStore,
   encodePairCode, seriesByAxis, stepDoneRate, validateStore,
 } from "./core.js";
-import { PROFILE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
+import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE, firstRound } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -146,9 +146,12 @@ function chooseRole(role) {
 
 // ---------------------------------------------------------------- 2. 立場ごとのホーム
 
+// 今の立場の形になっているプロフィール。項目を変える前の記録や、別の立場の形なら null（聞き直す）
+const myProfile = () => validateProfile(state.store.profile, state.role);
+
 function showHome() {
   const { rounds } = state.store;
-  if (!rounds.length) return state.store.profile ? startRound() : showProfile();
+  if (!rounds.length) return myProfile() ? startRound() : showProfile();
   screen(
     h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
@@ -166,7 +169,7 @@ function showHome() {
 
 function showProfile() {
   const role = state.role;
-  const p = state.store.profile;
+  const p = myProfile();
   const first = !state.store.rounds.length;
   const choiceGroup = (key) => {
     const f = PROFILE_FIELDS[key];
@@ -177,7 +180,14 @@ function showProfile() {
           h("input", { type: "radio", name: `p-${key}`, value: o.value, checked: p?.[key] === o.value }),
           h("span", {}, o.label)))));
   };
-  const title = h("input", { class: "code-in", maxlength: String(TITLE_MAX), value: p?.title ?? "", placeholder: role === "ceo" ? "例：代表取締役" : "例：工場長", "aria-label": "役職" });
+  // 社長には役職を聞かない（社長だと分かっているため）
+  const title = role === "leader"
+    ? h("input", { class: "code-in", maxlength: String(TITLE_MAX), value: p?.title ?? "", placeholder: "例：工場長", "aria-label": "役職" })
+    : null;
+  // 業種で「その他」を選んだときだけ、自分で書く欄を出す
+  const industryOther = h("input", { class: "code-in", maxlength: String(INDUSTRY_OTHER_MAX), value: p?.industry_other ?? "", placeholder: "例：印刷", "aria-label": "業種（その他）" });
+  const otherRow = h("div", { style: "margin-top:8px" }, "業種を書いてください：", industryOther);
+  const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
   const concern = first
     ? h("textarea", { maxlength: "400", placeholder: role === "ceo" ? "例：任せたいのに、結局自分が決めてしまう" : "例：社長が何を目指しているのか分からないまま動いている" })
     : null;
@@ -188,9 +198,10 @@ function showProfile() {
   submit.addEventListener("click", () => busy(submit, first ? "AIが1回目の問いを作っています…" : "保存しています…", async () => {
     err.replaceChildren();
     const pick = (key) => app.querySelector(`input[name=p-${key}]:checked`)?.value;
-    const profile = validateProfile({ title: title.value, reports: pick("reports"), years: pick("years"), industry: pick("industry") });
+    const picked = Object.fromEntries(ROLE_FIELDS[role].map((k) => [k, pick(k)]));
+    const profile = validateProfile({ ...picked, title: title?.value ?? "", industry_other: industryOther.value }, role);
     if (!profile) {
-      err.append(errorBox("役職のほかは、すべて選んでください。"));
+      err.append(errorBox(role === "leader" ? "役職のほかは、すべて選んでください。" : "すべて選んでください。"));
       return;
     }
     state.store.profile = profile;
@@ -211,9 +222,10 @@ function showProfile() {
     h("p", { class: "lead" }, first
       ? "1回目の問いを、あなたの立場と職場に合わせて作ります。会社名や人の名前は聞きません。"
       : "直した内容は、次の回から AI の見立てに使います。"),
-    h("section", { class: "card" },
-      h("div", { class: "q" }, "役職（任意）", h("div", {}, title)),
-      ["reports", "years", "industry"].map(choiceGroup)),
+    h("section", { class: "card", onchange: syncOther },
+      title ? h("div", { class: "q" }, "役職（任意）", h("div", {}, title)) : null,
+      ROLE_FIELDS[role].map(choiceGroup),
+      otherRow),
     concern ? h("section", { class: "card" },
       h("h2", {}, "いま、いちばん引っかかっていること（任意）"),
       h("p", { class: "notice" }, "書いてもらうと、1回目の問いをそこに寄せて作ります。実名や取引先の名前は書かないでください。"),
@@ -221,6 +233,7 @@ function showProfile() {
     h("div", { class: "row" }, submit, first ? null : h("button", { onclick: showHome }, "やめる")),
     err,
   );
+  syncOther();
 }
 
 // 1回目の深掘り6問と例。A は AI に作らせ、失敗したら B（出し分け）で続ける
@@ -314,7 +327,7 @@ function showQuiz() {
     }
     const last = state.store.rounds.at(-1);
     const body = {
-      role, round, fixed, deep, concern: concern.value.trim(), profile: state.store.profile,
+      role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
     };
@@ -382,7 +395,7 @@ function showDiagnosis() {
     const c = state.current;
     try {
       const out = await api("/api/coach", {
-        role: state.role, question: d.coaching_question, reply: answer, profile: state.store.profile,
+        role: state.role, question: d.coaching_question, reply: answer, profile: myProfile(),
         summary: d.summary, concern: c.concern, fixed: c.fixed,
         history: c.history, prev_step: c.prev_step,
       });
