@@ -66,8 +66,9 @@
 
 ```
 docs/      画面（GitHub Pages）。index.html・app.js・core.js（計算）・profile.js（はじめに聞くこと）・questions.js（最初の問いと出し分け）・how.html（仕組みの図）
-worker/    AI を呼ぶ中継（Cloudflare Worker）。鍵は Cloudflare の秘密の設定に置き、画面には出さない
-tests/     記録の検証・推移の計算・プロフィールと1回目の問いのテスト
+worker/    AI を呼ぶ中継（Cloudflare Worker）。鍵は Cloudflare の秘密の設定に置き、画面には出さない。handlers.js（入力の検証・AI に渡す本文・出力の検証）は手元モードと共有
+local/     手元モードの入口（自分の Mac で Claude Code を使って動かす）
+tests/     記録の検証・推移の計算・プロフィールと1回目の問い・中継・手元モードのテスト
 ```
 
 - AI：Claude（`claude-sonnet-5-5`）。決めた形（JSON）で受け取り、件数と選択肢の形を確かめてから画面に返します。安全上の理由で断られたときは、推奨の別モデルで自動的にやり直します
@@ -93,12 +94,28 @@ python3 -m http.server 8768 --directory docs
 
 http://localhost:8768 を開き、「回答例で試す」を押すと、架空の回答で1周を試せます。
 
-## テスト
+## 手元モード（API の鍵を使わず、自分の Claude Code で動かす）
 
-中継のテストは `@anthropic-ai/sdk` を読むので、先に `worker` で `npm install` を済ませます（AI は呼びません）。
+Claude Code に契約している人が、自分の Mac の中だけで使う形です。npm も API の鍵も要りません。
 
 ```bash
-node --test tests/core.test.mjs tests/worker.test.mjs tests/profile.test.mjs
+node local/server.mjs --data ~/takusu-note-data
+```
+
+http://127.0.0.1:8769 を開きます。公開版と同じ画面・同じ問いで、違うのは次の3つです。
+
+- AI は手元の `claude -p`（`claude-sonnet-5-5`）で動きます。道具・MCP・CLAUDE.md・hook はすべて切り、フォルダを読み書きさせません
+- 記録は `--data` のフォルダに残ります（立場ごとの `ceo.json`・`leader.json`、1回ごとの読める記録 `rounds/*.md`）。ブラウザを変えても続きから始められます
+- 各画面の下に「気になったこと」の欄があり、書いた内容は画面と問いと一緒に `feedback.md` に1行ずつ残ります。AI には送りません
+
+入口は 127.0.0.1 だけで待ち、起動ごとに作る合い鍵と Host・Origin を確かめます。
+
+## テスト
+
+中継のテストは `@anthropic-ai/sdk` を読むので、先に `worker` で `npm install` を済ませます（AI は呼びません。手元モードのテストは偽の claude を使います）。
+
+```bash
+node --test tests/*.mjs
 ```
 
 ## これから
