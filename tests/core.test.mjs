@@ -1,6 +1,7 @@
 // 実行：node --test tests/
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   changeSinceFirst, emptyStore, seriesByAxis, stepDoneRate, validateStore,
 } from "../docs/core.js";
@@ -49,4 +50,18 @@ test("推移：系列・1回目からの変化・一歩をやれた率", () => {
   assert.equal(stepDoneRate(rounds), 50);
   assert.equal(changeSinceFirst(rounds.slice(0, 1)), null);
   assert.equal(stepDoneRate([round(1, { A: 1, B: 1, C: 1, D: 1 })]), null);
+});
+
+test("日付：手元の時計で切る（日本の朝・月末・年末に前日にならない）", () => {
+  // 試験は TZ=Asia/Tokyo で回す（下の child で確かめる）
+  const out = execFileSync(process.execPath, ["--input-type=module", "-e", `
+    import { localDate } from ${JSON.stringify(new URL("../docs/core.js", import.meta.url).href)};
+    console.log([
+      localDate(new Date("2026-10-27T23:50:00Z")),
+      localDate(new Date("2026-10-31T15:30:00Z")),
+      localDate(new Date("2026-12-31T15:00:00Z")),
+      localDate(new Date("2026-10-28T14:59:00Z")),
+    ].join(","));
+  `], { env: { ...process.env, TZ: "Asia/Tokyo" } }).toString().trim();
+  assert.equal(out, "2026-10-28,2026-11-01,2027-01-01,2026-10-28");
 });

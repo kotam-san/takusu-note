@@ -2,10 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PROFILE_FIELDS, profileText, validateProfile } from "../docs/profile.js";
-import { QUESTIONS, firstRound } from "../docs/questions.js";
+import { QUESTIONS, firstRound, fixedFor } from "../docs/questions.js";
 import { emptyStore, validateStore } from "../docs/core.js";
 import worker, { validQuestions } from "../worker/src/index.js";
-import { START_SCHEMA, startContent, startSystem } from "../worker/src/prompts.js";
+import { START_SCHEMA, coachSystem, diagnoseSystem, startContent, startSystem } from "../worker/src/prompts.js";
 
 const ok = { title: "工場長", reports: "4-10", years: "1-3", industry: "mfg", industry_other: "" }; // 幹部
 const okCeo = { employees: "21-50", years: "1-3", industry: "mfg", industry_other: "" }; // 社長
@@ -98,4 +98,28 @@ test("1回目の指示：プロフィールだけを手がかりに、場面を1
   assert.equal(validQuestions(good), true);
   assert.equal(validQuestions({ ...good, next_questions: good.next_questions.slice(1) }), false);
   assert.equal(validQuestions({ ...good, next_questions: [...good.next_questions.slice(1), { axis: "Z", text: "q" }] }), false);
+});
+
+test("推移4問：従業員が数人の社長だけ「幹部」を外し、それ以外とプロフィールなしは元の文", () => {
+  const small = fixedFor("ceo", { employees: "1-5", years: "3-10", industry: "other", industry_other: "コンサルタント" });
+  for (const k of ["A", "B", "C", "D"]) assert.ok(!small[k].includes("幹部"), k);
+  assert.match(small.C, /仕事を任せている人/);
+  assert.match(small.D, /仕事を任せている人/);
+  assert.deepEqual(fixedFor("ceo", okCeo), QUESTIONS.ceo.fixed);
+  assert.deepEqual(fixedFor("ceo", null), QUESTIONS.ceo.fixed);
+  assert.deepEqual(fixedFor("leader", { ...ok, reports: "0" }), QUESTIONS.leader.fixed);
+  const ex = firstRound("ceo", { employees: "1-5", years: "3-10", industry: "mfg" }).examples;
+  for (const k of ["A", "B", "C", "D"]) assert.ok(!ex[k].includes("幹部") && !ex[k].includes("社員"), k);
+});
+
+test("指示：引っかかりの原因を決めつけず、中身が分かるときは学びと問いを中身に合わせる", () => {
+  for (const role of ["ceo", "leader"]) {
+    for (const sys of [diagnoseSystem(role), coachSystem(role), startSystem(role)]) assert.match(sys, /原因を決めつけない/);
+    const d = diagnoseSystem(role);
+    assert.match(d, /<concern_kind>/);
+    assert.doesNotMatch(d, /弱い軸につながる、開いた問い/);
+    assert.match(d, /引っかかりの記入がないときだけ、点の低い軸/);
+    assert.match(d, /種類の違う候補/);
+    assert.match(coachSystem(role), /点数の低い軸だけに寄せない/);
+  }
 });

@@ -229,6 +229,14 @@ test("1回の記録を Markdown で残し、送り直しても重複しない", 
   assert.match(md, /部下に1つ任せる/);
   assert.match(md, /答え：選んだ候補：x \/ 補足：y/);
   assert.equal(fs.statSync(path.join(DATA, "rounds", one.file)).mode & 0o777, 0o600);
+  assert.doesNotMatch(md, /中身：/); // 選んでいないときは出さない
+});
+
+test("記録：引っかかりの中身は、本人が選んだときだけ1行出す", async () => {
+  const one = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind1234", record: { ...record, concern_kind: "relation" } } })).json();
+  assert.match(fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8"), /引っかかり\n中身：関係・気持ちの行き違い\n/);
+  const two = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind5678", record: { ...record, concern: "", concern_kind: "relation" } } })).json();
+  assert.doesNotMatch(fs.readFileSync(path.join(DATA, "rounds", two.file), "utf8"), /中身：/);
 });
 
 test("記録の id・日付・回が違えば 400", async () => {

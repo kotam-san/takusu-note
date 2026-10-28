@@ -6,7 +6,7 @@ import {
   AXES, COACH_SCHEMA, DIAGNOSE_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, startContent, startSystem,
 } from "./prompts.js";
 import { profileText, validateProfile } from "../../docs/profile.js";
-import { QUESTIONS } from "../../docs/questions.js";
+import { CONCERN_KINDS, fixedFor } from "../../docs/questions.js";
 
 const AXIS_KEYS = ["A", "B", "C", "D"];
 
@@ -29,7 +29,7 @@ async function start(body, ai, count) {
   const role = checkRole(body.role);
   const profile = checkProfile(body.profile, role);
   const concern = checkText(body.concern ?? "", 400, "concern");
-  const content = startContent(profileText(profile, role), QUESTIONS[role].fixed, concern);
+  const content = startContent(profileText(profile, role), fixedFor(role, profile), concern);
   const out = await ai(startSystem(role), content, START_SCHEMA, 3000);
   if (!validQuestions(out)) throw new OutputError("start shape");
   await count("rounds_profiled");
@@ -48,6 +48,7 @@ async function diagnose(body, ai, count) {
     score: checkInt(d.score, 1, 4, "deep.score"),
   }));
   const concern = checkText(body.concern ?? "", 400, "concern");
+  const kind = checkKind(body.concern_kind, concern);
   const history = checkHistory(body.history);
   const prev = body.prev_step
     ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
@@ -70,9 +71,7 @@ async function diagnose(body, ai, count) {
     prev ? `前回の一歩「${prev.text}」→ ${prev.done === true ? "やれた" : prev.done === false ? "やれなかった" : "未回答"}` : "",
     "</answers>",
     "",
-    "<concern>",
-    concern || "（記入なし）",
-    "</concern>",
+    ...concernBlock(concern, kind),
   ];
 
   const out = await ai(diagnoseSystem(role), lines.join("\n"), DIAGNOSE_SCHEMA, 6000);
@@ -93,6 +92,7 @@ async function coach(body, ai, count) {
   const reply = checkText(body.reply, 800, "reply");
   const summary = checkText(body.summary ?? "", 600, "summary");
   const concern = checkText(body.concern ?? "", 400, "concern");
+  const kind = checkKind(body.concern_kind, concern);
   const fixed = checkFixed(body.fixed);
   const history = checkHistory(body.history);
   const prev = body.prev_step
@@ -110,9 +110,7 @@ async function coach(body, ai, count) {
     ...AXIS_KEYS.map((k) => `- ${k}：${fixed[k].text} → ${fixed[k].score}`),
     "</history>",
     "",
-    "<concern>",
-    concern || "（記入なし）",
-    "</concern>",
+    ...concernBlock(concern, kind),
     "",
     `<question>${question}</question>`,
     "",
@@ -188,6 +186,17 @@ function checkProfile(v, role) {
   const p = validateProfile(v, role);
   if (!p) throw new InputError("profile の形か選択肢が違います");
   return p;
+}
+// 引っかかりの中身。本文がなければ中身は捨てる（選んであっても AI に渡さない）
+function checkKind(v, concern) {
+  if (v != null && v !== "" && !Object.hasOwn(CONCERN_KINDS, v)) throw new InputError("concern_kind の選択肢が違います");
+  return concern ? v || "" : "";
+}
+// 本文があって中身を選んでいないときは「まだ分からない」として渡す
+function concernBlock(concern, kind) {
+  const lines = ["<concern>", concern || "（記入なし）", "</concern>"];
+  if (concern) lines.push("<concern_kind>", CONCERN_KINDS[kind || "unknown"], "</concern_kind>");
+  return lines;
 }
 function profileBlock(profile, role) {
   return profile ? ["<profile>", profileText(profile, role), "</profile>", ""] : [];

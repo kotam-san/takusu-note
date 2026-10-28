@@ -80,3 +80,37 @@ test("入力が違えば InputError で、AI を呼ばない", async () => {
   await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 0, fixed, deep: [] }), InputError);
   assert.equal(sent.length, 0);
 });
+
+test("引っかかりの中身：選んだものを渡し、未選択は「まだ分からない」、本文なしなら渡さない、不正値は止める", async () => {
+  const base = {
+    "/api/diagnose": { role: "ceo", round: 1, fixed, deep: [] },
+    "/api/coach": { role: "ceo", question: "q", reply: "r", fixed },
+  };
+  for (const [path, body] of Object.entries(base)) {
+    const out = path === "/api/coach" ? OUT.coach : OUT.diagnose;
+    const cases = [
+      [{ concern: "事務担当との関係", concern_kind: "relation" }, /<concern_kind>\n関係・気持ちの行き違い\n<\/concern_kind>/],
+      [{ concern: "事務担当との関係", concern_kind: "unknown" }, /<concern_kind>\nまだ分からない\n<\/concern_kind>/],
+      [{ concern: "事務担当との関係", concern_kind: "" }, /<concern_kind>\nまだ分からない\n<\/concern_kind>/],
+      [{ concern: "事務担当との関係" }, /<concern_kind>\nまだ分からない\n<\/concern_kind>/],
+    ];
+    for (const [extra, re] of cases) {
+      const { handlers, sent } = setup(out);
+      await handlers[path]({ ...body, ...extra });
+      assert.match(sent[0].content, re, `${path} ${JSON.stringify(extra)}`);
+    }
+    const { handlers, sent } = setup(out);
+    await handlers[path]({ ...body, concern: "", concern_kind: "relation" });
+    assert.doesNotMatch(sent[0].content, /concern_kind/, `${path} 本文なし`);
+    assert.match(sent[0].content, /（記入なし）/);
+    await assert.rejects(handlers[path]({ ...body, concern: "x", concern_kind: "money" }), InputError);
+    await assert.rejects(handlers[path]({ ...body, concern: "x", concern_kind: 3 }), InputError);
+  }
+});
+
+test("1回目：従業員が数人の社長には、推移4問を「幹部」なしで渡す", async () => {
+  const { handlers, sent } = setup(OUT.start);
+  await handlers["/api/start"]({ role: "ceo", profile: { employees: "1-5", years: "3-10", industry: "service", industry_other: "" } });
+  assert.match(sent[0].content, /問題が起きたとき、仕事を任せている人が/);
+  assert.match(sent[0].content, /会社の数字と今後の方向を、仕事を任せている人と/);
+});

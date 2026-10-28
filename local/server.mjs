@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { InputError, OutputError, makeHandlers } from "../worker/src/handlers.js";
 import { validateStore } from "../docs/core.js";
 import { profileText, validateProfile } from "../docs/profile.js";
-import { AXIS_NAMES } from "../docs/questions.js";
+import { AXIS_NAMES, CONCERN_KINDS } from "../docs/questions.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, "..", "docs");
@@ -199,6 +199,8 @@ function roundMarkdown(r, role, roundId) {
     "",
     "## いちばん引っかかっていること",
     str(r.concern, 400) || "（記入なし）",
+    // 中身は本人が選んだときだけ（選ばなかったことと「まだ分からない」を分けて残す）
+    ...(str(r.concern, 400) && Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? [`中身：${CONCERN_KINDS[r.concern_kind]}`] : []),
     "",
     "## 見立て",
     str(d.summary, 1000),

@@ -40,6 +40,14 @@ export function emptyStore() {
   return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null };
 }
 
+// ---------------------------------------------------------------- 日付
+
+// その Mac・その端末の時計での年月日（toISOString は世界標準時なので、日本の朝は前日になる）
+export function localDate(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 // ---------------------------------------------------------------- 推移
 
 // 回ごとの点数を軸別の系列にする（グラフ用）

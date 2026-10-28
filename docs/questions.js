@@ -10,6 +10,15 @@ export const AXIS_NAMES = {
   D: "数字と方向の共有",
 };
 
+// 「いちばん引っかかっていること」の中身。原因を AI に決めつけさせないため、本人に近いものを選んでもらう（任意）
+export const CONCERN_KINDS = {
+  way: "仕事の進め方",
+  relation: "関係・気持ちの行き違い",
+  info: "数字や方針の共有",
+  scope: "どこまで任せるかの線引き",
+  unknown: "まだ分からない",
+};
+
 export const SCALE = [
   { value: 1, label: "まったくそう思わない" },
   { value: 2, label: "あまりそう思わない" },
@@ -70,12 +79,14 @@ export const SAMPLE = {
     fixed: { A: 2, B: 1, C: 2, D: 3 },
     deep: [3, 2, 2, 3, 1, 2],
     concern: "工場長に任せたいが、結局自分が最終判断をしてしまう。任せた後に口を出してしまうのが自分でも分かっている。",
+    concern_kind: "scope",
     reply: "失敗されるのが怖いというより、取引先に迷惑をかけたときに自分が謝ることになるのが嫌なんだと思います。",
   },
   leader: {
     fixed: { A: 2, B: 2, C: 3, D: 1 },
     deep: [2, 3, 2, 3, 3, 1],
     concern: "社長が何を目指しているのかが分からないまま、目の前の段取りを回している。数字も知らされていない。",
+    concern_kind: "info",
     reply: "聞けば教えてくれるとは思いますが、忙しそうなので、こちらから時間をくださいと言いにくいです。",
   },
 };
@@ -223,7 +234,16 @@ export function firstRound(role, profile) {
   const examples = { ...(INDUSTRY_EXAMPLES[role][profile.industry] ?? base.examples) };
   // 従業員が数人の社長には、例でも「幹部」を前提にしない
   if (role === "ceo" && small(role, profile)) {
-    for (const k of Object.keys(examples)) examples[k] = examples[k].replaceAll("幹部", "社員");
+    for (const k of Object.keys(examples)) examples[k] = examples[k].replaceAll("幹部", SMALL_CEO_PARTNER);
   }
   return { deep, examples };
+}
+
+// 推移を見る4問の文。従業員が数人の社長には「幹部」を前提にしない（家族や外注先に任せていることもある）。
+// 文が変わっても同じ軸の同じ系列として比べる（記録は点数だけを持つ。従業員数を直したときも同じ）。
+const SMALL_CEO_PARTNER = "仕事を任せている人";
+export function fixedFor(role, profile) {
+  const base = QUESTIONS[role].fixed;
+  if (!profile || !(role === "ceo" && small(role, profile))) return { ...base };
+  return Object.fromEntries(Object.entries(base).map(([k, t]) => [k, t.replaceAll("幹部", SMALL_CEO_PARTNER)]));
 }

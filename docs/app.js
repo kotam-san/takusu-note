@@ -2,10 +2,10 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, changeSinceFirst, emptyStore, seriesByAxis, stepDoneRate, validateStore,
+  AXIS_KEYS, changeSinceFirst, emptyStore, localDate, seriesByAxis, stepDoneRate, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
-import { AXIS_NAMES, QUESTIONS, SAMPLE, SCALE, firstRound } from "./questions.js";
+import { AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, firstRound, fixedFor } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 // 手元モード（local/server.mjs から開いたとき）は、入口が index.html に合い鍵を差し込む。
@@ -348,6 +348,7 @@ function showQuiz() {
   const role = state.role;
   const round = state.store.rounds.length + 1;
   const q = QUESTIONS[role];
+  const fixedText = fixedFor(role, myProfile()); // 表示・送信・感想欄で同じ文を使う
   const deepList = state.store.next_deep ?? q.deep;
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
@@ -360,7 +361,7 @@ function showQuiz() {
   const fixedBlocks = AXIS_KEYS.map((k) =>
     h("div", { class: "q" },
       h("div", { class: "axis" }, `推移を見る問い・${AXIS_NAMES[k]}`),
-      q.fixed[k],
+      fixedText[k],
       h("div", { class: "example" }, examples[k]),
       scaleFor(`f-${k}`)));
 
@@ -373,6 +374,9 @@ function showQuiz() {
 
   const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう" });
   if (round === 1) concern.value = state.store.first_concern ?? ""; // はじめに書いたものを入れておき、直せるようにする
+  // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
+  const kinds = h("div", { class: "steps" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
+    h("label", {}, h("input", { type: "radio", name: "concern-kind", value }), h("span", {}, label))));
   const err = h("div");
   const submit = h("button", { class: "primary" }, "AIの見立てを見る");
 
@@ -381,13 +385,14 @@ function showQuiz() {
     AXIS_KEYS.forEach((k) => (app.querySelector(`input[name=f-${k}][value="${s.fixed[k]}"]`).checked = true));
     deepList.forEach((_, i) => (app.querySelector(`input[name=d-${i}][value="${s.deep[i] ?? 2}"]`).checked = true));
     concern.value = s.concern;
+    app.querySelector(`input[name=concern-kind][value="${s.concern_kind}"]`).checked = true;
     err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
   };
 
   submit.addEventListener("click", () => busy(submit, "AIが読んでいます…（20秒ほど）", async () => {
     err.replaceChildren();
     const pick = (name) => Number(app.querySelector(`input[name=${name}]:checked`)?.value);
-    const fixed = Object.fromEntries(AXIS_KEYS.map((k) => [k, { text: q.fixed[k], score: pick(`f-${k}`) }]));
+    const fixed = Object.fromEntries(AXIS_KEYS.map((k) => [k, { text: fixedText[k], score: pick(`f-${k}`) }]));
     const deep = deepList.map((d, i) => ({ axis: d.axis, text: d.text, score: pick(`d-${i}`) }));
     if ([...Object.values(fixed), ...deep].some((x) => !x.score)) {
       err.append(errorBox("すべての問いに答えてください。"));
@@ -396,19 +401,20 @@ function showQuiz() {
     const last = state.store.rounds.at(-1);
     const body = {
       role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
+      concern_kind: concern.value.trim() ? app.querySelector("input[name=concern-kind]:checked")?.value ?? "" : "",
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
-      state.current = { round, fixed, deep, concern: body.concern, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId() };
+      state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId() };
       showDiagnosis();
     } catch (e) {
       err.append(errorBox(e.message));
     }
   }));
 
-  where("問い", [...AXIS_KEYS.map((k) => q.fixed[k]), ...deepList.map((d) => d.text)]);
+  where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
   screen(
     h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
     adaptive ? h("p", { class: "lead" }, round === 1
@@ -419,7 +425,8 @@ function showQuiz() {
     h("section", { class: "card" },
       h("h2", {}, "いま、いちばん引っかかっていること"),
       h("p", { class: "notice" }, "実名や取引先の名前は書かないでください。"),
-      concern),
+      concern,
+      h("div", { class: "q" }, "その難しさは、どれにいちばん近いですか（任意）", kinds)),
     h("div", { class: "row" }, submit, h("button", { onclick: fillSample }, "回答例で試す")),
     err,
   );
@@ -465,7 +472,7 @@ function showDiagnosis() {
     try {
       const out = await api("/api/coach", {
         role: state.role, question: d.coaching_question, reply: answer, profile: myProfile(),
-        summary: d.summary, concern: c.concern, fixed: c.fixed,
+        summary: d.summary, concern: c.concern, concern_kind: c.concern_kind, fixed: c.fixed,
         history: c.history, prev_step: c.prev_step,
       });
       c.coaching = { question: d.coaching_question, reply: answer, ...out };
@@ -514,7 +521,7 @@ function showSteps() {
     }
     const before = { rounds: state.store.rounds.slice(), next_deep: state.store.next_deep, next_examples: state.store.next_examples };
     const scores = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.fixed[k].score]));
-    c.date = new Date().toISOString().slice(0, 10);
+    c.date = localDate();
     c.step = step.slice(0, 80);
     state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
@@ -645,7 +652,7 @@ function recordBox(c) {
       const out = await local("POST", "/api/record", {
         role: state.role, round_id: c.id,
         record: {
-          round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern,
+          round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
           diagnosis: c.diagnosis, coaching: c.coaching, step: c.step,
         },
       });
