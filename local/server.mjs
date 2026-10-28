@@ -24,6 +24,7 @@ const DOCS = path.join(HERE, "..", "docs");
 const MODEL = "claude-sonnet-5-5"; // 公開の中継と同じ
 const AI_TIMEOUT_MS = Number(process.env.TAKUSU_AI_TIMEOUT_MS || 120_000); // 画面の待ち時間（150秒）より短く。試験では縮める
 const MAX_BODY = 64_000; // バイト
+const MAX_STORE_BODY = 512_000; // 記録の保存だけ。学びの本文が回ごとに積み上がるため
 const MAX_AI_OUT = 1_000_000; // claude -p の出力の上限（バイト）
 const ROLES = new Set(["ceo", "leader"]);
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
@@ -291,12 +292,12 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-async function readBody(req) {
+async function readBody(req, max = MAX_BODY) {
   let size = 0;
   const chunks = [];
   for await (const c of req) {
     size += c.length;
-    if (size > MAX_BODY) throw Object.assign(new Error("too_large"), { status: 413 });
+    if (size > max) throw Object.assign(new Error("too_large"), { status: 413 });
     chunks.push(c);
   }
   try {
@@ -320,7 +321,7 @@ async function route(req, res, url) {
     if (!ROLES.has(role)) return send(res, 404, { error: "not_found" });
     if (req.method === "GET") return send(res, 200, await readStore(role));
     if (req.method === "PUT") {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_STORE_BODY);
       const store = validateStore(body.store);
       if (!store || !Number.isInteger(body.version)) throw new InputError("記録の形が違います");
       return serial(async () => {
@@ -366,6 +367,7 @@ export const server = http.createServer(async (req, res) => {
     if (res.headersSent) return;
     if (e instanceof InputError) return send(res, 400, { error: "bad_input", message: e.message });
     if (e instanceof OutputError) return send(res, 502, { error: "ai_failed", message: "AI の答えを受け取れませんでした。もう一度お試しください。" });
+    if (e.status === 413) res.setHeader("Connection", "close"); // 読み残した本文がある接続は使い回させない
     if (e.status) return send(res, e.status, { error: e.message });
     console.error("error", e?.name, e?.code ?? ""); // 本文は出さない
     send(res, 500, { error: "internal" });

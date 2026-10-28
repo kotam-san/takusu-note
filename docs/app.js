@@ -2,7 +2,7 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, changeSinceFirst, emptyStore, localDate, seriesByAxis, stepDoneRate, validateStore,
+  AXIS_KEYS, clipLesson, draftMatches, emptyStore, localDate, seriesByAxis, stepDoneRate, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import { AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, firstRound, fixedFor } from "./questions.js";
@@ -109,6 +109,52 @@ async function save() {
 
 const saveFailed = () => errorBox(saveError || "記録を保存できませんでした。");
 
+// ---------------------------------------------------------------- 途中の回（下書き）
+// ページを離れて戻っても続きから開けるよう、途中の回をこのタブ（sessionStorage）に残す。
+// 回を保存したら消す。開くのは draftMatches が通るときだけ（保存済みの回・問いが変わった回は開かない）
+
+const draftKey = (role) => `tn.draft.${role}`;
+let draft = null;
+
+function readDraft(role) {
+  try { return JSON.parse(sessionStorage.getItem(draftKey(role)) ?? "null"); } catch { return null; }
+}
+function writeDraft() {
+  if (!draft || !state.role) return;
+  try { sessionStorage.setItem(draftKey(state.role), JSON.stringify(draft)); } catch {}
+}
+function clearDraft(role = state.role) {
+  draft = null;
+  try { sessionStorage.removeItem(draftKey(role)); } catch {}
+}
+
+// 今の回の深掘りの問い（回答画面と、下書きが合うかの判定で同じものを使う）
+const quizDeep = () => state.store.next_deep ?? QUESTIONS[state.role].deep;
+
+// 下書きのいちばん先まで進んだ画面を開き直す。開けなければ捨ててホームへ
+function resumeDraft(saved) {
+  try {
+    draft = saved;
+    if (saved.stage === "quiz") showQuiz(true);
+    else {
+      state.current = saved.current;
+      if (saved.stage === "steps") showSteps(true);
+      else showDiagnosis(true);
+    }
+    return true;
+  } catch {
+    clearDraft();
+    state.current = null;
+    return false;
+  }
+}
+
+function resumedNote() {
+  return h("section", { class: "card" },
+    h("p", { class: "notice", style: "margin:0 0 10px" }, "途中から再開しました。入力していた内容を戻しています。"),
+    h("button", { onclick: () => { clearDraft(); state.current = null; showHome(); } }, "最初からやり直す"));
+}
+
 // ---------------------------------------------------------------- AI を呼ぶ
 
 function api(path, body) {
@@ -163,9 +209,12 @@ async function busy(button, label, fn) {
 
 function showStart() {
   state = { role: null, store: null, current: null };
+  draft = null;
   where("はじめ");
+  // 途中の回がある立場には印をつける（押すと続きから開く）
   const roleButton = (role, desc) =>
-    h("button", { onclick: () => chooseRole(role) }, h("b", {}, ROLE_NAME[role]), desc);
+    h("button", { onclick: () => chooseRole(role) }, h("b", {}, ROLE_NAME[role]), desc,
+      readDraft(role) ? h("span", { class: "resume" }, "途中の回があります") : null);
 
   screen(
     h("h1", {}, "託すノート"),
@@ -201,6 +250,9 @@ async function chooseRole(role) {
     screen(errorBox(HAND ? "記録のファイルが読めませんでした。新しく始めます。" : "このブラウザの記録が読めませんでした。新しく始めます。"), again, err);
     return;
   }
+  const saved = readDraft(role);
+  if (draftMatches(saved, store.rounds, quizDeep().map((d) => d.text)) && resumeDraft(saved)) return;
+  clearDraft(role);
   showHome();
 }
 
@@ -344,12 +396,16 @@ function askPrevStep(last) {
   );
 }
 
-function showQuiz() {
+function showQuiz(resumed = false) {
   const role = state.role;
   const round = state.store.rounds.length + 1;
   const q = QUESTIONS[role];
   const fixedText = fixedFor(role, myProfile()); // 表示・送信・感想欄で同じ文を使う
-  const deepList = state.store.next_deep ?? q.deep;
+  const deepList = quizDeep();
+  if (!resumed) {
+    draft = { round, deep_texts: deepList.map((d) => d.text), stage: "quiz", quiz: {} };
+    writeDraft();
+  }
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
 
@@ -379,6 +435,27 @@ function showQuiz() {
     h("label", {}, h("input", { type: "radio", name: "concern-kind", value }), h("span", {}, label))));
   const err = h("div");
   const submit = h("button", { class: "primary" }, "AIの見立てを見る");
+  const pick = (name) => Number(app.querySelector(`input[name=${name}]:checked`)?.value);
+  const kindPicked = () => app.querySelector("input[name=concern-kind]:checked")?.value ?? "";
+
+  // 入力のたびに下書きへ（ページを離れても戻せるように）
+  const capture = () => {
+    draft.quiz = {
+      fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, pick(`f-${k}`) || null])),
+      deep: deepList.map((_, i) => pick(`d-${i}`) || null),
+      concern: concern.value,
+      kind: kindPicked(),
+    };
+    writeDraft();
+  };
+  const restore = () => {
+    const d = draft.quiz ?? {};
+    const check = (name, v) => { if (v) { const el = app.querySelector(`input[name=${name}][value="${v}"]`); if (el) el.checked = true; } };
+    AXIS_KEYS.forEach((k) => check(`f-${k}`, d.fixed?.[k]));
+    deepList.forEach((_, i) => check(`d-${i}`, d.deep?.[i]));
+    if (typeof d.concern === "string") concern.value = d.concern;
+    check("concern-kind", d.kind);
+  };
 
   const fillSample = () => {
     const s = SAMPLE[role];
@@ -387,11 +464,11 @@ function showQuiz() {
     concern.value = s.concern;
     app.querySelector(`input[name=concern-kind][value="${s.concern_kind}"]`).checked = true;
     err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
+    capture();
   };
 
   submit.addEventListener("click", () => busy(submit, "AIが読んでいます…（20秒ほど）", async () => {
     err.replaceChildren();
-    const pick = (name) => Number(app.querySelector(`input[name=${name}]:checked`)?.value);
     const fixed = Object.fromEntries(AXIS_KEYS.map((k) => [k, { text: fixedText[k], score: pick(`f-${k}`) }]));
     const deep = deepList.map((d, i) => ({ axis: d.axis, text: d.text, score: pick(`d-${i}`) }));
     if ([...Object.values(fixed), ...deep].some((x) => !x.score)) {
@@ -401,13 +478,15 @@ function showQuiz() {
     const last = state.store.rounds.at(-1);
     const body = {
       role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
-      concern_kind: concern.value.trim() ? app.querySelector("input[name=concern-kind]:checked")?.value ?? "" : "",
+      concern_kind: concern.value.trim() ? kindPicked() : "",
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
       state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId() };
+      draft = { ...draft, stage: "diagnosis", current: state.current, pick: null, reply: "" };
+      writeDraft();
       showDiagnosis();
     } catch (e) {
       err.append(errorBox(e.message));
@@ -416,13 +495,14 @@ function showQuiz() {
 
   where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
   screen(
+    resumed ? resumedNote() : null,
     h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
     adaptive ? h("p", { class: "lead" }, round === 1
       ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
       : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
-    h("section", { class: "card" }, h("h2", {}, "毎回同じ4つの問い"), h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。"), fixedBlocks),
-    h("section", { class: "card" }, h("h2", {}, adaptive ? "今回の深掘り" : "深掘りの問い"), deepBlocks),
-    h("section", { class: "card" },
+    h("section", { class: "card", onchange: capture }, h("h2", {}, "毎回同じ4つの問い"), h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。"), fixedBlocks),
+    h("section", { class: "card", onchange: capture }, h("h2", {}, adaptive ? "今回の深掘り" : "深掘りの問い"), deepBlocks),
+    h("section", { class: "card", onchange: capture, oninput: capture },
       h("h2", {}, "いま、いちばん引っかかっていること"),
       h("p", { class: "notice" }, "実名や取引先の名前は書かないでください。"),
       concern,
@@ -430,11 +510,13 @@ function showQuiz() {
     h("div", { class: "row" }, submit, h("button", { onclick: fillSample }, "回答例で試す")),
     err,
   );
+  if (resumed) restore();
+  else capture();
 }
 
 // ---------------------------------------------------------------- 4. 見立てと学び、3分コーチング
 
-function showDiagnosis() {
+function showDiagnosis(resumed = false) {
   const { diagnosis: d, round } = state.current;
   const notes = AXIS_KEYS.map((k) => {
     const n = d.axis_notes.find((x) => x.axis === k);
@@ -457,7 +539,12 @@ function showDiagnosis() {
   const reply = h("textarea", { maxlength: "700", placeholder: "補足があれば自由に（候補になければ、ここに書いてください）" });
   const err = h("div");
   const send = h("button", { class: "primary" }, "答えを送る");
-  const fillSample = h("button", { onclick: () => { app.querySelector("input[name=pick]").checked = true; reply.value = SAMPLE[state.role].reply; err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。")); } }, "回答例で試す");
+  const capture = () => {
+    draft.pick = app.querySelector("input[name=pick]:checked")?.value ?? null;
+    draft.reply = reply.value;
+    writeDraft();
+  };
+  const fillSample = h("button", { onclick: () => { app.querySelector("input[name=pick]").checked = true; reply.value = SAMPLE[state.role].reply; err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。")); capture(); } }, "回答例で試す");
 
   send.addEventListener("click", () => busy(send, "受け止めています…", async () => {
     err.replaceChildren();
@@ -476,6 +563,8 @@ function showDiagnosis() {
         history: c.history, prev_step: c.prev_step,
       });
       c.coaching = { question: d.coaching_question, reply: answer, ...out };
+      draft = { ...draft, stage: "steps", current: c, step: null, own: "" };
+      writeDraft();
       showSteps();
     } catch (e) {
       err.append(errorBox(e.message));
@@ -484,6 +573,7 @@ function showDiagnosis() {
 
   where("見立てと3分コーチング", [d.lesson.check.question, d.coaching_question]);
   screen(
+    resumed ? resumedNote() : null,
     h("h1", {}, `${round} 回目の見立て`),
     h("section", { class: "card" }, h("h2", {}, "今の状態"), h("p", {}, d.summary), notes),
     h("section", { class: "card" },
@@ -493,7 +583,7 @@ function showDiagnosis() {
       h("p", {}, d.lesson.check.question),
       h("div", { class: "choices" }, choices),
       result),
-    h("section", { class: "card" },
+    h("section", { class: "card", onchange: capture, oninput: capture },
       h("h2", {}, "3分コーチング"),
       h("p", { class: "lesson" }, d.coaching_question),
       h("div", { class: "steps" }, picks),
@@ -501,9 +591,13 @@ function showDiagnosis() {
       h("div", { class: "row" }, send, fillSample),
       err),
   );
+  if (resumed) {
+    if (draft.pick != null) { const el = app.querySelector(`input[name=pick][value="${draft.pick}"]`); if (el) el.checked = true; }
+    if (typeof draft.reply === "string") reply.value = draft.reply;
+  }
 }
 
-function showSteps() {
+function showSteps(resumed = false) {
   const c = state.current;
   const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く" });
   const options = [...c.coaching.step_options.map((s, i) =>
@@ -523,7 +617,8 @@ function showSteps() {
     const scores = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.fixed[k].score]));
     c.date = localDate();
     c.step = step.slice(0, 80);
-    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null });
+    const lesson = clipLesson(c.diagnosis?.lesson);
+    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}) });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
     state.store.next_examples = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.coaching.fixed_examples[k].slice(0, 120)]));
     const ok = await save();
@@ -531,16 +626,27 @@ function showSteps() {
       Object.assign(state.store, before); // 保存できなかった回は積まない（もう一度押せる）
       return err.replaceChildren(saveFailed());
     }
+    clearDraft(); // 保存した回はもう開き直さない
     showDone(ok);
   }));
 
+  const capture = () => {
+    draft.step = app.querySelector("input[name=step]:checked")?.value ?? null;
+    draft.own = own.value;
+    writeDraft();
+  };
   where("今週の一歩", c.coaching.step_options);
   screen(
+    resumed ? resumedNote() : null,
     h("h1", {}, "今週の一歩を決める"),
     h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.coaching.reflection)),
-    h("section", { class: "card steps" }, h("h2", {}, "どれをやりますか"), options,
+    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"), options,
       h("div", { class: "row" }, decide), err),
   );
+  if (resumed) {
+    if (draft.step != null) { const el = app.querySelector(`input[name=step][value="${draft.step}"]`); if (el) el.checked = true; }
+    if (typeof draft.own === "string") own.value = draft.own;
+  }
 }
 
 function showDone(saved) {
@@ -565,23 +671,25 @@ function showDone(saved) {
 function growthCard() {
   const rounds = state.store.rounds;
   if (!rounds.length) return null;
-  const change = changeSinceFirst(rounds);
   const rate = stepDoneRate(rounds);
+  const lessons = rounds.filter((r) => r.lesson).reverse();
 
   const reset = () => {
     if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。よろしいですか？`)) return;
     try { localStorage.removeItem(key(state.role)); } catch {}
+    clearDraft();
     showStart();
   };
 
   return h("section", { class: "card" },
     h("h2", {}, "育ちの記録"),
     chart(rounds),
-    change ? h("p", { class: "notice" }, "1回目からの変化：" + AXIS_KEYS.map((k) => `${AXIS_NAMES[k]} ${change[k] > 0 ? "+" : ""}${change[k]}`).join("／")) : null,
     h("details", {}, h("summary", {}, "点数を表で見る"),
       h("table", {},
         h("tr", {}, h("th", {}, "回"), AXIS_KEYS.map((k) => h("th", {}, k))),
         rounds.map((r) => h("tr", {}, h("td", {}, `${r.round}回目（${r.date}）`), AXIS_KEYS.map((k) => h("td", {}, r.scores[k])))))),
+    lessons.length ? h("h3", {}, "これまでの学び") : null,
+    lessons.map((r) => h("details", { class: "learned" }, h("summary", {}, `${r.round}回目：${r.lesson.title}`), h("p", {}, r.lesson.body))),
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）" : r.step_done === false ? "（やれなかった）" : "（次の回で確認）"))),
@@ -590,7 +698,8 @@ function growthCard() {
   );
 }
 
-// 推移の折れ線（点数1〜4・回ごと）。凡例＋線の端に軸の記号を添える。
+// 推移は軸ごとに1行ずつ（4本を1枚に重ねると、同じ点が続いたとき線と記号がぶつかって読めないため）。
+// 左に軸の名前、中に小さな折れ線、右に今の点と1回目からの変化。回の文字は最初と最後だけ（回が増えても重ならない）
 function chart(rounds) {
   const NS = "http://www.w3.org/2000/svg";
   const s = (tag, attrs = {}, text) => {
@@ -599,41 +708,41 @@ function chart(rounds) {
     if (text != null) el.textContent = text;
     return el;
   };
-  const W = 340, H = 180, L = 28, R = 24, T = 12, B = 26;
+  const W = 240, H = 44, P = 8;
   const n = rounds.length;
-  const x = (i) => (n === 1 ? L + (W - L - R) / 2 : L + (i * (W - L - R)) / (n - 1));
-  const y = (v) => T + ((4 - v) * (H - T - B)) / 3;
-
-  const svg = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "4つの軸の点数の推移" });
-  for (let v = 1; v <= 4; v++) {
-    svg.append(s("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
-    svg.append(s("text", { x: L - 8, y: y(v) + 3, "text-anchor": "end" }, v));
-  }
-  rounds.forEach((r, i) => svg.append(s("text", { x: x(i), y: H - 8, "text-anchor": "middle" }, `${r.round}回`)));
-
+  const x = (i) => (n === 1 ? W / 2 : P + (i * (W - 2 * P)) / (n - 1));
+  const y = (v) => 6 + ((4 - v) * (H - 12)) / 3;
   const series = seriesByAxis(rounds);
-  AXIS_KEYS.forEach((k, idx) => {
+
+  const rows = AXIS_KEYS.map((k) => {
     const pts = series[k];
     const color = `var(--series-${k})`;
-    const off = (idx - 1.5) * 1.5; // 同じ点数で線が重なりすぎないよう、わずかにずらす
+    const svg = s("svg", { class: "spark", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${AXIS_NAMES[k]}の点数の推移：${pts.map((p) => p.value).join("、")}` });
+    for (let v = 1; v <= 4; v++) svg.append(s("line", { x1: P, x2: W - P, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
     if (pts.length > 1) {
       svg.append(s("polyline", {
-        points: pts.map((p, i) => `${x(i)},${y(p.value) + off}`).join(" "),
+        points: pts.map((p, i) => `${x(i)},${y(p.value)}`).join(" "),
         fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
       }));
     }
     pts.forEach((p, i) => {
-      const c = s("circle", { cx: x(i), cy: y(p.value) + off, r: 4, fill: color, stroke: "var(--surface-1)", "stroke-width": 2 });
+      const last = i === pts.length - 1;
+      if (!last && n > 12) return; // 回が多いと点が並んで線が点線に見えるので、途中の点は省く（細かくは表で見る）
+      const c = s("circle", { cx: x(i), cy: y(p.value), r: last ? 4.5 : 3, fill: color, stroke: "var(--surface-1)", "stroke-width": 2 });
       c.append(s("title", {}, `${p.round}回目・${AXIS_NAMES[k]}：${p.value}`));
       svg.append(c);
     });
-    const lastPt = pts.at(-1);
-    svg.append(s("text", { x: x(pts.length - 1) + 8, y: y(lastPt.value) + off + 3, style: "fill:var(--sub)" }, k));
+    const now = pts.at(-1).value;
+    const diff = now - pts[0].value;
+    return h("div", { class: "axrow" },
+      h("div", { class: "nm" }, h("i", { style: `background:${color}` }), AXIS_NAMES[k]),
+      h("div", {}, svg),
+      h("div", { class: "val" }, `今 ${now}`, n > 1 ? h("small", {}, `（${diff > 0 ? "+" : ""}${diff}）`) : null));
   });
-
-  const legend = h("div", { class: "legend" }, AXIS_KEYS.map((k) =>
-    h("span", {}, h("i", { style: `background:var(--series-${k})` }), `${k} ${AXIS_NAMES[k]}`)));
-  return h("div", {}, legend, svg);
+  const foot = h("div", { class: "axrow axfoot" }, h("div", { class: "nm" }),
+    h("div", { class: "ends" }, h("span", {}, `${rounds[0].round}回目`), n > 1 ? h("span", {}, `${rounds.at(-1).round}回目`) : null),
+    h("div", { class: "val" }, n > 1 ? "（1回目から）" : ""));
+  return h("div", { class: "axes" }, rows, foot);
 }
 
 // ---------------------------------------------------------------- 6. 手元モードだけの部品

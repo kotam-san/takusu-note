@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  changeSinceFirst, emptyStore, seriesByAxis, stepDoneRate, validateStore,
+  changeSinceFirst, clipLesson, draftMatches, emptyStore, seriesByAxis, stepDoneRate, validateStore,
 } from "../docs/core.js";
 import { QUESTIONS } from "../docs/questions.js";
 
@@ -64,4 +64,36 @@ test("日付：手元の時計で切る（日本の朝・月末・年末に前�
     ].join(","));
   `], { env: { ...process.env, TZ: "Asia/Tokyo" } }).toString().trim();
   assert.equal(out, "2026-10-28,2026-11-01,2027-01-01,2026-10-28");
+});
+
+test("学び：形を確かめ、長すぎる題と本文は切ってから記録に入れる（読み込み直しても壊れない）", () => {
+  assert.equal(clipLesson(null), null);
+  assert.equal(clipLesson({ title: 1, body: "b" }), null);
+  const long = clipLesson({ title: "題".repeat(80), body: "本".repeat(2000), check: {} });
+  assert.deepEqual(Object.keys(long), ["title", "body"]);
+  assert.equal(long.title.length, 40);
+  assert.equal(long.body.length, 600);
+  const store = { ...emptyStore(), rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 }, { lesson: long })] };
+  assert.ok(validateStore(JSON.parse(JSON.stringify(store))));
+  assert.ok(validateStore({ ...emptyStore(), rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 })] })); // 学びのない古い記録
+  for (const bad of [{ title: "あ".repeat(41), body: "b" }, { title: "t", body: "あ".repeat(601) }, { title: "t" }, "学び"]) {
+    assert.equal(validateStore({ ...emptyStore(), rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 }, { lesson: bad })] }), null, JSON.stringify(bad));
+  }
+});
+
+test("途中の回：次の回で同じ深掘りのときだけ開き直す（保存済みの回・問いが変わった回・壊れた下書きは開かない）", () => {
+  const deep = ["問い1", "問い2"];
+  const rounds = [round(1, { A: 1, B: 2, C: 3, D: 4 })];
+  const quiz = { round: 2, stage: "quiz", deep_texts: deep, quiz: {} };
+  assert.equal(draftMatches(quiz, rounds, deep), true);
+  assert.equal(draftMatches(quiz, [...rounds, round(2, { A: 1, B: 1, C: 1, D: 1 })], deep), false); // 保存した後
+  assert.equal(draftMatches(quiz, [], deep), false);
+  assert.equal(draftMatches(quiz, rounds, ["問い1", "別の問い"]), false);
+  assert.equal(draftMatches({ ...quiz, stage: "other" }, rounds, deep), false);
+  assert.equal(draftMatches(null, rounds, deep), false);
+  assert.equal(draftMatches("x", rounds, deep), false);
+  assert.equal(draftMatches({ ...quiz, stage: "diagnosis" }, rounds, deep), false); // 見立てがない
+  assert.equal(draftMatches({ ...quiz, stage: "diagnosis", current: { diagnosis: {} } }, rounds, deep), true);
+  assert.equal(draftMatches({ ...quiz, stage: "steps", current: { diagnosis: {} } }, rounds, deep), false);
+  assert.equal(draftMatches({ ...quiz, stage: "steps", current: { diagnosis: {}, coaching: { step_options: [] } } }, rounds, deep), true);
 });

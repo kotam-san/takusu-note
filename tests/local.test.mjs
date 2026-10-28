@@ -185,6 +185,24 @@ test("記録の読み書き：はじめは空、保存すると版が進み、�
   assert.equal(fs.statSync(DATA).mode & 0o777, 0o700);
 });
 
+test("記録の保存だけは学びが積み上がっても受け取る（512KB まで）。ほかの道は 64KB のまま", async () => {
+  const sc = { A: 2, B: 2, C: 3, D: 1 };
+  const rounds = Array.from({ length: 100 }, (_, i) => ({
+    round: i + 1, date: "2026-10-28", scores: sc, step: "一歩".repeat(20), step_done: true,
+    lesson: { title: "題".repeat(40), body: "本".repeat(600) },
+  }));
+  const big = store(rounds);
+  assert.ok(Buffer.byteLength(JSON.stringify(big)) > 64_000);
+  const cur = await (await req("/api/store/ceo")).json();
+  assert.equal((await req("/api/store/ceo", { method: "PUT", body: { version: cur.version, store: big } })).status, 200);
+  const again = await (await req("/api/store/ceo")).json();
+  assert.equal(again.store.rounds[99].lesson.body.length, 600);
+  const huge = await req("/api/store/ceo", { method: "PUT", body: { version: again.version, store: big, pad: "あ".repeat(180_000) } });
+  assert.equal(huge.status, 413);
+  const fb = await req("/api/feedback", { method: "POST", body: { role: "ceo", screen: "x", text: "あ".repeat(30_000) } });
+  assert.equal(fb.status, 413);
+});
+
 test("古い版からの上書きは 409", async () => {
   const cur = await (await req("/api/store/ceo")).json();
   assert.equal((await req("/api/store/ceo", { method: "PUT", body: { version: cur.version, store: store() } })).status, 200);

@@ -4,6 +4,8 @@ import { validateProfile } from "./profile.js";
 
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
+export const LESSON_TITLE_MAX = 40;
+export const LESSON_BODY_MAX = 600;
 
 // ---------------------------------------------------------------- 記録の形の検証
 // localStorage は利用者も書き換えられるので、読み込むたびに形と範囲を確かめる。
@@ -21,6 +23,7 @@ export function validateStore(data) {
     if (!AXIS_KEYS.every((k) => isScore(r.scores?.[k]))) return null;
     if (!isStr(r.step ?? "", 80)) return null;
     if (![true, false, null, undefined].includes(r.step_done)) return null;
+    if (r.lesson != null && !(isStr(r.lesson?.title, LESSON_TITLE_MAX) && isStr(r.lesson?.body, LESSON_BODY_MAX))) return null;
   }
   if (data.next_deep != null) {
     if (!Array.isArray(data.next_deep) || data.next_deep.length > 8) return null;
@@ -38,6 +41,26 @@ export function validateStore(data) {
 
 export function emptyStore() {
   return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null };
+}
+
+// ---------------------------------------------------------------- 学びと途中の回
+
+// その回の学びを記録に残す形にする。AI の出力は長さが保証されないので、ここで切る（記録全体を壊さないため）
+export function clipLesson(lesson) {
+  if (!lesson || typeof lesson.title !== "string" || typeof lesson.body !== "string") return null;
+  return { title: lesson.title.slice(0, LESSON_TITLE_MAX), body: lesson.body.slice(0, LESSON_BODY_MAX) };
+}
+
+// 途中の回の下書き（ページを離れて戻っても続きから開くため）。開いてよいのは、
+// まだ保存していない次の回で、同じ深掘りの問いに答えている途中のものだけ（保存済みの回を二重に積まない）
+export const DRAFT_STAGES = ["quiz", "diagnosis", "steps"];
+export function draftMatches(draft, rounds, deepTexts) {
+  if (!draft || typeof draft !== "object") return false;
+  if (draft.round !== rounds.length + 1 || !DRAFT_STAGES.includes(draft.stage)) return false;
+  if (JSON.stringify(draft.deep_texts) !== JSON.stringify(deepTexts)) return false;
+  if (draft.stage !== "quiz" && !(draft.current?.diagnosis && typeof draft.current.diagnosis === "object")) return false;
+  if (draft.stage === "steps" && !Array.isArray(draft.current?.coaching?.step_options)) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------- 日付
