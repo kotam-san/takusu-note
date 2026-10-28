@@ -7,3 +7,4 @@ local/*.local.json
 
 # 開発の経緯とアイデア（私的な話を含むので公開しない）
 notes/
+CLAUDE.local.md
