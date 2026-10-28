@@ -762,10 +762,10 @@ function recordBox(c) {
         role: state.role, round_id: c.id,
         record: {
           round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
-          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step,
+          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step,
         },
       });
-      status.textContent = `この回の記録を残しました（rounds/${out.file}）。`;
+      status.textContent = `この回の記録を残しました（rounds/${out.file}）。答えたことは「わたしのこと.md」にも足しました。`;
     } catch (e) {
       status.textContent = `この回の記録を残せませんでした：${e.message}`;
       retry.hidden = false;

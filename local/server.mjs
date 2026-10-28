@@ -65,6 +65,7 @@ const file = {
   store: (role) => path.join(DATA, `${role}.json`),
   rounds: () => path.join(DATA, "rounds"),
   feedback: () => path.join(DATA, "feedback.md"),
+  aboutMe: () => path.join(DATA, "わたしのこと.md"),
 };
 
 await fsp.mkdir(file.rounds(), { recursive: true, mode: 0o700 });
@@ -245,8 +246,57 @@ async function writeRound(body) {
     let name = `${base}.md`;
     for (let i = 2; fs.existsSync(path.join(dir, name)); i++) name = `${base}_${i}.md`;
     await writeAtomic(path.join(dir, name), roundMarkdown(r, role, body.round_id));
+    await appendAboutMe(r, role);
     return { file: name, duplicate: false };
   });
+}
+
+// ---------------------------------------------------------------- わたしのこと（自分の AI に読ませるファイル）
+
+// 1回終わるたびに本人が答えたこと・選んだことだけを足す。AI の見立てと学びは入れない（AI の推測を本人のこととして渡さないため）
+function aboutMeHead() {
+  return [
+    "# わたしのこと（託すノートの記録から）",
+    "",
+    "託すノートを1回終えるたびに、本人が答えたこと・選んだことをここへ足しています。AI の見立てや学びは入れていません。",
+    "",
+    "AI へ：この人が仕事を人にどう任せているか、何に引っかかっているかを知るための記録です。下ほど新しく、今に近い姿です。答えるときの前提に使い、ここに無いことは決めつけずに聞いてください。",
+    "",
+    "使い方：Claude Code なら CLAUDE.md、Codex なら AGENTS.md に次の1行を置くと、このファイルを読んでから答えるようになります。",
+    "",
+    "```",
+    `私のことは次のファイルに書いてあります。答える前に読んでください：${path.resolve(file.aboutMe())}`,
+    "```",
+    "",
+    "",
+  ].join("\n");
+}
+
+function aboutMeEntry(r, role) {
+  const p = validateProfile(r.profile, role);
+  const concern = str(r.concern, 400);
+  const kind = concern && Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? `（中身：${CONCERN_KINDS[r.concern_kind]}）` : "";
+  const prev = r.prev_step && str(r.prev_step.text, 80);
+  const done = r.prev_step?.done === true ? "やれた" : r.prev_step?.done === false ? "やれなかった" : "確かめていない";
+  const reply = oneLine(str(r.coaching?.reply, 800));
+  return [
+    `## ${r.date}｜${ROLE_NAME[role]}・${r.round}回目`,
+    "",
+    ...(p ? [`- わたしについて：${profileText(p, role)}`] : []),
+    `- 自己評価（4段階）：${["A", "B", "C", "D"].map((k) => `${AXIS_NAMES[k]} ${r.fixed?.[k]?.score ?? "?"}`).join("／")}`,
+    ...(concern ? [`- いちばん引っかかっていること：${oneLine(concern)}${kind}`] : []),
+    ...(prev ? [`- 前の回の一歩：${prev} → ${done}`] : []),
+    ...(reply ? [`- 問い「${oneLine(str(r.coaching?.question, 300))}」へのわたしの答え：${reply}`] : []),
+    ...(str(r.step, 80) ? [`- 今週の一歩：${str(r.step, 80)}`] : []),
+    "",
+    "",
+  ].join("\n");
+}
+
+async function appendAboutMe(r, role) {
+  const f = file.aboutMe();
+  if (!fs.existsSync(f)) await fsp.writeFile(f, aboutMeHead(), { mode: 0o600 });
+  await fsp.appendFile(f, aboutMeEntry(r, role), { mode: 0o600 });
 }
 
 // ---------------------------------------------------------------- 感想の一言（AI には送らない）

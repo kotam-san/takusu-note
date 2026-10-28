@@ -250,6 +250,26 @@ test("1回の記録を Markdown で残し、送り直しても重複しない", 
   assert.doesNotMatch(md, /中身：/); // 選んでいないときは出さない
 });
 
+test("1回ごとに本人の答えを「わたしのこと.md」へ足し、AI の見立てと学びは入れない", async () => {
+  const f = path.join(DATA, "わたしのこと.md");
+  const before = fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
+  const body = { role: "ceo", round_id: "me123456", record: { ...record, round: 2, date: "2026-11-01", concern_kind: "scope", prev_step: { text: "部下に1つ任せる", done: false } } };
+  await req("/api/record", { method: "POST", body });
+  await req("/api/record", { method: "POST", body }); // 送り直しでは足さない
+  const md = fs.readFileSync(f, "utf8");
+  const added = md.slice(before.length);
+  assert.equal(md.match(/^# わたしのこと/gm).length, 1);
+  assert.match(md, new RegExp(`答える前に読んでください：${path.resolve(f).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.equal(added.match(/^## 2026-11-01｜社長・2回目$/gm).length, 1);
+  assert.match(added, /自己評価（4段階）：任せる・任される 2／/);
+  assert.match(added, /いちばん引っかかっていること：引っかかり（中身：どこまで任せるかの線引き）/);
+  assert.match(added, /前の回の一歩：部下に1つ任せる → やれなかった/);
+  assert.match(added, /問い「コーチの問い」へのわたしの答え：選んだ候補：x \/ 補足：y/);
+  assert.match(added, /今週の一歩：部下に1つ任せる/);
+  assert.doesNotMatch(added, /見立て|学び|受け止め|本文|次の問い/);
+  assert.equal(fs.statSync(f).mode & 0o777, 0o600);
+});
+
 test("記録：引っかかりの中身は、本人が選んだときだけ1行出す", async () => {
   const one = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind1234", record: { ...record, concern_kind: "relation" } } })).json();
   assert.match(fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8"), /引っかかり\n中身：関係・気持ちの行き違い\n/);
