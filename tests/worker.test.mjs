@@ -78,10 +78,21 @@ test("1日の全体上限を超えたら 503", async () => {
   const store = new Map([[`calls:${new Date().toISOString().slice(0, 10)}`, "300"]]);
   const kv = { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v) };
   const res = await worker.fetch(
-    new Request("https://w.example/api/diagnose", { method: "POST", headers: { Origin: ORIGIN }, body: "{}" }),
+    new Request("https://w.example/api/diagnose", {
+      method: "POST", headers: { Origin: ORIGIN }, body: JSON.stringify({ role: "ceo", round: 1, fixed, deep: [] }),
+    }),
     { ...env, STATS: kv },
   );
   assert.equal(res.status, 503);
+});
+
+test("入力の検証で止まる呼び出しは1日の全体上限に数えない", async () => {
+  const store = new Map();
+  const kv = { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v) };
+  for (const body of ["{bad", "{}", JSON.stringify({ role: "admin" })]) {
+    await worker.fetch(new Request("https://w.example/api/diagnose", { method: "POST", headers: { Origin: ORIGIN }, body }), { ...env, STATS: kv });
+  }
+  assert.equal(store.get(`calls:${new Date().toISOString().slice(0, 10)}`), undefined);
 });
 
 test("stats は回数だけを返す", async () => {

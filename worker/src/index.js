@@ -10,6 +10,8 @@ export { validCoaching, validDiagnosis, validQuestions } from "./handlers.js";
 const MODEL = "claude-sonnet-5-5"; // Opus は費用がかかりすぎるため（2026-10-25）
 const MAX_BODY = 32_000; // バイト（日本語は1文字3バイト）
 
+class DailyCapError extends Error {}
+
 // ---------------------------------------------------------------- 入口
 
 export default {
@@ -28,14 +30,11 @@ export default {
       }
       if (!cors["Access-Control-Allow-Origin"]) return json({ error: "origin_not_allowed" }, 403, cors);
 
-      // 回数制限（IPごと）と、1日の全体上限
+      // 回数制限（IPごと）
       const ip = request.headers.get("CF-Connecting-IP") || "local";
       if (env.LIMITER) {
         const { success } = await env.LIMITER.limit({ key: ip });
         if (!success) return json({ error: "too_many_requests", message: "少し時間をおいてから試してください。" }, 429, cors);
-      }
-      if (await overDailyCap(env)) {
-        return json({ error: "daily_cap", message: "本日の利用上限に達しました。明日また試してください。" }, 503, cors);
       }
 
       const raw = await request.text();
@@ -47,14 +46,21 @@ export default {
         return json({ error: "bad_json" }, 400, cors);
       }
 
+      // 1日の全体上限は、入力の検証を通って AI を呼ぶ直前にだけ数える（中身の無い呼び出しで使い切らせないため）
       const handlers = makeHandlers({
-        ai: (system, content, schema, maxTokens) => callClaude(env, system, content, schema, maxTokens),
+        ai: async (system, content, schema, maxTokens) => {
+          if (await overDailyCap(env)) throw new DailyCapError();
+          return callClaude(env, system, content, schema, maxTokens);
+        },
         count: (name) => count(env, name),
       });
       const result = await handlers[url.pathname](body);
       return json(result, 200, cors);
     } catch (err) {
       if (err instanceof InputError) return json({ error: "bad_input", message: err.message }, 400, cors);
+      if (err instanceof DailyCapError) {
+        return json({ error: "daily_cap", message: "本日の利用上限に達しました。明日また試してください。" }, 503, cors);
+      }
       // 本文はログに出さない。種類だけ残す
       console.log("error", err?.name, err?.status ?? "");
       const status = err instanceof OutputError ? 502 : 500;
