@@ -19,6 +19,17 @@ export const CONCERN_KINDS = {
   unknown: "まだ分からない",
 };
 
+// 前回の一歩をやれなかった理由。責めるためではなく、次の一歩の大きさや場面を合わせるために聞く（任意）
+export const STEP_MISS_REASONS = {
+  time: "時間がとれなかった",
+  no_scene: "その場面が来なかった",
+  heavy: "気が進まなかった・言い出しにくかった",
+  changed: "やる前に、違うと分かった",
+  forgot: "忘れていた",
+  other: "その他",
+};
+export const STEP_NOTE_MAX = 80;
+
 export const SCALE = [
   { value: 1, label: "まったくそう思わない" },
   { value: 2, label: "あまりそう思わない" },

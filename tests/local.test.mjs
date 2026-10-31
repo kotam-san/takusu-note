@@ -270,6 +270,21 @@ test("1回ごとに本人の答えを「わたしのこと.md」へ足し、AI �
   assert.equal(fs.statSync(f).mode & 0o777, 0o600);
 });
 
+test("前回の一歩をやれなかった理由と一言を、1回ごとの記録とわたしのこと.md に残す", async () => {
+  const f = path.join(DATA, "わたしのこと.md");
+  const before = fs.readFileSync(f, "utf8");
+  const prev_step = { text: "朝会を任せる", done: false, reason: "time", note: "繁忙期で\n後回し" };
+  const one = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "miss1234", record: { ...record, round: 3, date: "2026-11-08", prev_step } } })).json();
+  const md = fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8");
+  assert.match(md, /## 前回の一歩\n朝会を任せる → やれなかった（理由：時間がとれなかった／ひとこと：繁忙期で 後回し）\n/);
+  assert.match(fs.readFileSync(f, "utf8").slice(before.length), /前の回の一歩：朝会を任せる → やれなかった（理由：時間がとれなかった／ひとこと：繁忙期で 後回し）/);
+  // やれた回の理由・候補にない理由は書かない
+  const two = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "miss5678", record: { ...record, round: 4, date: "2026-11-15", prev_step: { text: "x", done: true, reason: "time" } } } })).json();
+  assert.match(fs.readFileSync(path.join(DATA, "rounds", two.file), "utf8"), /## 前回の一歩\nx → やれた\n/);
+  const three = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "miss9012", record: { ...record, round: 5, date: "2026-11-22", prev_step: { text: "y", done: false, reason: "money" } } } })).json();
+  assert.match(fs.readFileSync(path.join(DATA, "rounds", three.file), "utf8"), /## 前回の一歩\ny → やれなかった\n/);
+});
+
 test("記録：引っかかりの中身は、本人が選んだときだけ1行出す", async () => {
   const one = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind1234", record: { ...record, concern_kind: "relation" } } })).json();
   assert.match(fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8"), /引っかかり\n中身：関係・気持ちの行き違い\n/);

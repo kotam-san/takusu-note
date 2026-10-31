@@ -14,7 +14,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { InputError, OutputError, makeHandlers } from "../worker/src/handlers.js";
-import { validateStore } from "../docs/core.js";
+import { missDetail, stepMiss, validateStore } from "../docs/core.js";
 import { profileText, validateProfile } from "../docs/profile.js";
 import { AXIS_NAMES, CONCERN_KINDS } from "../docs/questions.js";
 
@@ -216,6 +216,7 @@ function roundMarkdown(r, role, roundId) {
     `- 答え：${oneLine(str(c.reply, 800))}`,
     `- コーチから：${str(c.reflection, 1000)}`,
     "",
+    ...(prevLine(r) ? ["## 前回の一歩", prevLine(r), ""] : []),
     "## 今週の一歩",
     str(r.step, 80),
     "",
@@ -224,6 +225,15 @@ function roundMarkdown(r, role, roundId) {
     "",
   ];
   return lines.join("\n");
+}
+
+// 「前回の一歩 → 結果（理由：…／ひとこと：…）」。理由と一言はやれなかったときだけ（stepMiss で候補と長さもそろえる）
+function prevLine(r) {
+  const text = r.prev_step && str(r.prev_step.text, 80);
+  if (!text) return "";
+  const p = r.prev_step;
+  const done = p.done === true ? "やれた" : p.done === false ? "やれなかった" + missDetail(stepMiss(false, p.reason, p.note)) : "確かめていない";
+  return `${text} → ${done}`;
 }
 
 async function writeRound(body) {
@@ -276,8 +286,7 @@ function aboutMeEntry(r, role) {
   const p = validateProfile(r.profile, role);
   const concern = str(r.concern, 400);
   const kind = concern && Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? `（中身：${CONCERN_KINDS[r.concern_kind]}）` : "";
-  const prev = r.prev_step && str(r.prev_step.text, 80);
-  const done = r.prev_step?.done === true ? "やれた" : r.prev_step?.done === false ? "やれなかった" : "確かめていない";
+  const prev = prevLine(r);
   const reply = oneLine(str(r.coaching?.reply, 800));
   return [
     `## ${r.date}｜${ROLE_NAME[role]}・${r.round}回目`,
@@ -285,7 +294,7 @@ function aboutMeEntry(r, role) {
     ...(p ? [`- わたしについて：${profileText(p, role)}`] : []),
     `- 自己評価（4段階）：${["A", "B", "C", "D"].map((k) => `${AXIS_NAMES[k]} ${r.fixed?.[k]?.score ?? "?"}`).join("／")}`,
     ...(concern ? [`- いちばん引っかかっていること：${oneLine(concern)}${kind}`] : []),
-    ...(prev ? [`- 前の回の一歩：${prev} → ${done}`] : []),
+    ...(prev ? [`- 前の回の一歩：${prev}`] : []),
     ...(reply ? [`- 問い「${oneLine(str(r.coaching?.question, 300))}」へのわたしの答え：${reply}`] : []),
     ...(str(r.step, 80) ? [`- 今週の一歩：${str(r.step, 80)}`] : []),
     "",

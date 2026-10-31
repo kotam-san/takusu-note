@@ -5,8 +5,9 @@
 import {
   AXES, COACH_SCHEMA, DIAGNOSE_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, startContent, startSystem,
 } from "./prompts.js";
+import { isMissReason, missDetail, stepMiss } from "../../docs/core.js";
 import { profileText, validateProfile } from "../../docs/profile.js";
-import { CONCERN_KINDS, fixedFor } from "../../docs/questions.js";
+import { CONCERN_KINDS, STEP_MISS_REASONS, STEP_NOTE_MAX, fixedFor } from "../../docs/questions.js";
 
 const AXIS_KEYS = ["A", "B", "C", "D"];
 
@@ -50,9 +51,7 @@ async function diagnose(body, ai, count) {
   const concern = checkText(body.concern ?? "", 400, "concern");
   const kind = checkKind(body.concern_kind, concern);
   const history = checkHistory(body.history);
-  const prev = body.prev_step
-    ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
-    : null;
+  const prev = checkPrev(body.prev_step);
   const profile = body.profile == null ? null : checkProfile(body.profile, role);
 
   const lines = [
@@ -68,7 +67,7 @@ async function diagnose(body, ai, count) {
     ...AXIS_KEYS.map((k) => `- ${k}（${AXES[k]}）：${fixed[k].text} → ${fixed[k].score}`),
     "深掘りの問い：",
     ...deep.map((d) => `- [${d.axis}] ${d.text} → ${d.score}`),
-    prev ? `前回の一歩「${prev.text}」→ ${prev.done === true ? "やれた" : prev.done === false ? "やれなかった" : "未回答"}` : "",
+    prev ? fmtPrev(prev) : "",
     "</answers>",
     "",
     ...concernBlock(concern, kind),
@@ -95,16 +94,14 @@ async function coach(body, ai, count) {
   const kind = checkKind(body.concern_kind, concern);
   const fixed = checkFixed(body.fixed);
   const history = checkHistory(body.history);
-  const prev = body.prev_step
-    ? { text: checkText(body.prev_step.text, 80, "prev_step.text"), done: checkDone(body.prev_step.done) }
-    : null;
+  const prev = checkPrev(body.prev_step);
   const profile = body.profile == null ? null : checkProfile(body.profile, role);
 
   const content = [
     ...profileBlock(profile, role),
     "<history>",
     history.length ? history.map(fmtHistory).join("\n") : "（初回）",
-    prev ? `前回の一歩「${prev.text}」→ ${prev.done === true ? "やれた" : prev.done === false ? "やれなかった" : "未回答"}` : "",
+    prev ? fmtPrev(prev) : "",
     `今回の見立て：${summary}`,
     "推移用の4問：",
     ...AXIS_KEYS.map((k) => `- ${k}：${fixed[k].text} → ${fixed[k].score}`),
@@ -170,6 +167,21 @@ function checkDone(v) {
   if (v === true || v === false || v === null) return v;
   throw new InputError("prev_step.done は true / false / null です");
 }
+// 前回の一歩。理由と一言は、やれなかったときだけ渡す（やれた・未回答なら捨てる）。候補にない理由と長すぎる一言は断る
+function checkPrev(v) {
+  if (!v) return null;
+  const done = checkDone(v.done);
+  return { text: checkText(v.text, 80, "prev_step.text"), done, ...checkMiss(done, v.reason, v.note, "prev_step") };
+}
+function checkMiss(done, reason, note, name) {
+  if (reason != null && reason !== "" && !isMissReason(reason)) throw new InputError(`${name}.reason の選択肢が違います`);
+  if (note != null) checkText(note, STEP_NOTE_MAX, `${name}.note`);
+  return stepMiss(done, reason, note);
+}
+function fmtPrev(prev) {
+  const done = prev.done === true ? "やれた" : prev.done === false ? "やれなかった" + missDetail(prev) : "未回答";
+  return `前回の一歩「${prev.text}」→ ${done}`;
+}
 function checkList(v, max, fn) {
   if (!Array.isArray(v) || v.length > max) throw new InputError(`一覧は ${max} 件までです`);
   return v.map(fn);
@@ -189,7 +201,7 @@ function checkProfile(v, role) {
 }
 // 引っかかりの中身。本文がなければ中身は捨てる（選んであっても AI に渡さない）
 function checkKind(v, concern) {
-  if (v != null && v !== "" && !Object.hasOwn(CONCERN_KINDS, v)) throw new InputError("concern_kind の選択肢が違います");
+  if (v != null && v !== "" && (typeof v !== "string" || !Object.hasOwn(CONCERN_KINDS, v))) throw new InputError("concern_kind の選択肢が違います");
   return concern ? v || "" : "";
 }
 // 本文があって中身を選んでいないときは「まだ分からない」として渡す
@@ -201,17 +213,23 @@ function concernBlock(concern, kind) {
 function profileBlock(profile, role) {
   return profile ? ["<profile>", profileText(profile, role), "</profile>", ""] : [];
 }
+// これまでの記録には、やれなかった理由（候補）だけを添える。一言は前回の分だけ prev_step で渡す
 function checkHistory(v) {
-  return checkList(v ?? [], 24, (h) => ({
-    round: checkInt(h.round, 1, 100, "history.round"),
-    date: checkText(h.date ?? "", 10, "history.date"),
-    scores: Object.fromEntries(AXIS_KEYS.map((k) => [k, checkInt(h.scores?.[k], 1, 4, "history.scores")])),
-    step: checkText(h.step ?? "", 80, "history.step"),
-    step_done: checkDone(h.step_done ?? null),
-  }));
+  return checkList(v ?? [], 24, (h) => {
+    const step_done = checkDone(h.step_done ?? null);
+    return {
+      round: checkInt(h.round, 1, 100, "history.round"),
+      date: checkText(h.date ?? "", 10, "history.date"),
+      scores: Object.fromEntries(AXIS_KEYS.map((k) => [k, checkInt(h.scores?.[k], 1, 4, "history.scores")])),
+      step: checkText(h.step ?? "", 80, "history.step"),
+      step_done,
+      reason: checkMiss(step_done, h.step_reason, null, "history").reason,
+    };
+  });
 }
 function fmtHistory(h) {
   const scores = AXIS_KEYS.map((k) => `${k}=${h.scores[k]}`).join(" ");
-  const done = h.step_done === true ? "やれた" : h.step_done === false ? "やれなかった" : "未確認";
+  const done = h.step_done === true ? "やれた"
+    : h.step_done === false ? `やれなかった${h.reason ? `（${STEP_MISS_REASONS[h.reason]}）` : ""}` : "未確認";
   return `- ${h.round}回目（${h.date}）${scores}／一歩「${h.step}」→ ${done}`;
 }

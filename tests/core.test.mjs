@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  changeSinceFirst, clipLesson, draftMatches, emptyStore, seriesByAxis, stepDoneRate, validateStore,
+  changeSinceFirst, clipLesson, draftMatches, emptyStore, roundSummary, seriesByAxis, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
 import { QUESTIONS } from "../docs/questions.js";
 
@@ -96,4 +96,69 @@ test("途中の回：次の回で同じ深掘りのときだけ開き直す（�
   assert.equal(draftMatches({ ...quiz, stage: "diagnosis", current: { diagnosis: {} } }, rounds, deep), true);
   assert.equal(draftMatches({ ...quiz, stage: "steps", current: { diagnosis: {} } }, rounds, deep), false);
   assert.equal(draftMatches({ ...quiz, stage: "steps", current: { diagnosis: {}, coaching: { step_options: [] } } }, rounds, deep), true);
+});
+
+test("やれなかった理由：やれなかったときだけ、候補の理由と1行の一言を持つ", () => {
+  assert.deepEqual(stepMiss(false, "time", "  忙しくて\n後回し  "), { reason: "time", note: "忙しくて 後回し" });
+  assert.deepEqual(stepMiss(false, "", ""), {});
+  assert.deepEqual(stepMiss(false, "no_scene"), { reason: "no_scene" });
+  assert.deepEqual(stepMiss(false, null, "一言だけ"), { note: "一言だけ" });
+  assert.deepEqual(stepMiss(false, "money", "x"), { note: "x" }); // 候補にない理由は持たない
+  assert.equal(stepMiss(false, null, "あ".repeat(100)).note.length, 80);
+  assert.deepEqual(stepMiss(true, "time", "x"), {}); // やれた・未確認なら捨てる
+  assert.deepEqual(stepMiss(null, "time", "x"), {});
+});
+
+test("記録の検証：理由と一言は、やれなかった回にだけ・候補と長さの内で通す", () => {
+  const r = (extra) => ({ ...emptyStore(), rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 }, extra)] });
+  for (const ok of [
+    { step_done: false, step_reason: "time", step_note: "後回し" },
+    { step_done: false, step_reason: "other" },
+    { step_done: false, step_note: "一言だけ" },
+    { step_done: false },
+    { step_done: true },
+  ]) assert.ok(validateStore(r(ok)), JSON.stringify(ok));
+  for (const bad of [
+    { step_done: true, step_reason: "time" },
+    { step_done: null, step_note: "x" },
+    { step_done: false, step_reason: "money" },
+    { step_done: false, step_note: "あ".repeat(81) },
+    { step_done: false, step_note: "改行\nあり" },
+    { step_done: false, step_note: 3 },
+    { step_done: false, step_reason: ["time"] }, // 配列はキーの文字に化けるので断る
+    { step_done: false, step_reason: { toString: null } },
+  ]) assert.equal(validateStore(r(bad)), null, JSON.stringify(bad));
+});
+
+test("まとめ：前回の一歩と結果は前の回から、今週の一歩はその回から取り、選んだ項目だけ入れる", () => {
+  const rounds = [
+    round(1, { A: 1, B: 2, C: 3, D: 4 }, { step: "朝会を任せる", step_done: false, step_reason: "no_scene", step_note: "出張が続いた" }),
+    round(2, { A: 2, B: 2, C: 3, D: 1 }, { date: "2026-11-09", step: "見積りを任せる", lesson: { title: "任せる範囲の線引き", body: "本文" } }),
+  ];
+  const extra = { concern: "会議で\n決めきれない", concern_kind: "scope", reply: "選んだ候補：a\n補足：b" };
+  const base = roundSummary("社長", rounds, 1, { step: true }, extra);
+  assert.equal(base, [
+    "託すノート｜社長・2回目（2026-11-09）",
+    "前回の一歩：朝会を任せる → やれなかった（その場面が来なかった）",
+    "今週の一歩：見積りを任せる",
+  ].join("\n"));
+  const all = roundSummary("社長", rounds, 1, { step: true, note: true, scores: true, lesson: true, concern: true, reply: true }, extra);
+  assert.match(all, /\n　ひとこと：出張が続いた\n/);
+  assert.match(all, /4つの軸（1〜4）：任せる・任される 2／社長がいなくても決まるか 2／言われる前に動くか 3／数字と方向の共有 1/);
+  assert.match(all, /今日の学び：任せる範囲の線引き/);
+  assert.match(all, /いちばん引っかかっていること：会議で \/ 決めきれない（中身：どこまで任せるかの線引き）/);
+  assert.match(all, /3分コーチングでの答え：選んだ候補：a \/ 補足：b/);
+  assert.doesNotMatch(all, /本文/);
+  // 一言だけ選んでも、一歩を外せば前回の行ごと出さない
+  assert.doesNotMatch(roundSummary("社長", rounds, 1, { note: true }, extra), /ひとこと|前回/);
+});
+
+test("まとめ：1回目・結果が未確認・学びや引っかかりのない回でも欠けずに作る", () => {
+  const first = [round(1, { A: 1, B: 2, C: 3, D: 4 }, { step: "朝会を任せる" })];
+  assert.equal(roundSummary("幹部", first, 0, { step: true, lesson: true, concern: true }, {}),
+    "託すノート｜幹部・1回目（2026-10-15）\n今週の一歩：朝会を任せる");
+  const unchecked = [round(1, { A: 1, B: 1, C: 1, D: 1 }, { step: "x" }), round(2, { A: 1, B: 1, C: 1, D: 1 }, { step: "y" })];
+  assert.match(roundSummary("幹部", unchecked, 1, { step: true }), /前回の一歩：x → まだ確かめていない/);
+  const done = [round(1, { A: 1, B: 1, C: 1, D: 1 }, { step: "x", step_done: true }), round(2, { A: 1, B: 1, C: 1, D: 1 }, { step: "y" })];
+  assert.match(roundSummary("幹部", done, 1, { step: true, note: true }), /前回の一歩：x → やれた\n今週の一歩：y$/);
 });

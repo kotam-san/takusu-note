@@ -2,10 +2,12 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, clipLesson, draftMatches, emptyStore, localDate, seriesByAxis, stepDoneRate, validateStore,
+  AXIS_KEYS, clipLesson, draftMatches, emptyStore, localDate, roundSummary, seriesByAxis, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
-import { AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, firstRound, fixedFor } from "./questions.js";
+import {
+  AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, firstRound, fixedFor,
+} from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 // 手元モード（local/server.mjs から開いたとき）は、入口が index.html に合い鍵を差し込む。
@@ -373,24 +375,51 @@ function startRound() {
 
 function askPrevStep(last) {
   const err = h("div");
-  const answer = (done) => (ev) => busy(ev.currentTarget, "保存しています…", async () => {
-    last.step_done = done;
+  let saving = false; // 「やれた」と「次へ」を続けて押しても、保存を重ねない
+  // 結果・理由・一言はまとめて保存し、保存できなければ3つとも戻す。「やれた」なら理由と一言は持たない
+  const saveResult = async (done, reason, note) => {
+    if (saving) return;
+    saving = true;
+    err.replaceChildren();
+    const before = { step_done: last.step_done, step_reason: last.step_reason, step_note: last.step_note };
+    delete last.step_reason;
+    delete last.step_note;
+    const miss = stepMiss(done, reason, note);
+    Object.assign(last, { step_done: done },
+      miss.reason ? { step_reason: miss.reason } : {}, miss.note ? { step_note: miss.note } : {});
     if (!(await save()) && HAND) {
-      last.step_done = null;
+      for (const [k, v] of Object.entries(before)) if (v === undefined) delete last[k]; else last[k] = v;
+      saving = false;
       return err.replaceChildren(saveFailed());
     }
     showQuiz();
-  });
+  };
+
+  // 「やれなかった」を押したら、理由（任意）と一言（任意）を聞いてから進む
+  const reasons = h("div", { class: "steps" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
+    h("label", {}, h("input", { type: "radio", name: "miss-reason", value }), h("span", {}, label))));
+  const note = h("input", { type: "text", maxlength: String(STEP_NOTE_MAX), placeholder: "ひとこと（任意）" });
+  const next = h("button", { class: "primary" }, "次へ");
+  next.addEventListener("click", () => busy(next, "保存しています…", () =>
+    saveResult(false, app.querySelector("input[name=miss-reason]:checked")?.value ?? "", note.value)));
+  const miss = h("div", { hidden: true },
+    h("h3", {}, "どれがいちばん近いですか（任意）"),
+    h("p", { class: "notice" }, "責めるためではなく、次の一歩の大きさや場面を合わせるために聞きます。"),
+    reasons, h("div", { class: "steps" }, h("label", {}, note)),
+    h("div", { class: "row" }, next));
+
+  const done = h("button", { class: "primary" }, "やれた");
+  done.addEventListener("click", () => busy(done, "保存しています…", () => saveResult(true)));
+  const notDone = h("button", { onclick: () => { miss.hidden = false; notDone.disabled = true; } }, "やれなかった");
+
   where("前回の一歩", [last.step]);
   screen(
     h("section", { class: "card" },
       h("h2", {}, "前回の一歩、やれましたか"),
       h("p", { class: "lesson" }, last.step),
-      h("div", { class: "row" },
-        h("button", { class: "primary", onclick: answer(true) }, "やれた"),
-        h("button", { onclick: answer(false) }, "やれなかった"),
-      ),
+      h("div", { class: "row" }, done, notDone),
       h("p", { class: "notice", style: "margin-top:12px" }, "やれなかったことも、次の問いを作る材料になります。"),
+      miss,
       err,
     ),
   );
@@ -479,8 +508,9 @@ function showQuiz(resumed = false) {
     const body = {
       role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
       concern_kind: concern.value.trim() ? kindPicked() : "",
-      history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done }) => ({ round, date, scores, step: step || "", step_done: step_done ?? null })),
-      prev_step: last?.step ? { text: last.step, done: last.step_done ?? null } : null,
+      history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done, step_reason }) =>
+        ({ round, date, scores, step: step || "", step_done: step_done ?? null, ...(step_done === false && step_reason ? { step_reason } : {}) })),
+      prev_step: last?.step ? { text: last.step, done: last.step_done ?? null, ...stepMiss(last.step_done, last.step_reason, last.step_note) } : null,
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
@@ -657,18 +687,22 @@ function showDone(saved) {
     saved ? null : errorBox("このブラウザに記録を保存できませんでした（プライベートブラウズでは残りません）。"),
     HAND ? recordBox(c) : null,
     h("section", { class: "card" },
+      h("h2", {}, "コーチに送るまとめ"),
+      h("p", { class: "notice" }, "送りたい項目を選んで、コピーか共有で送れます。"),
+      summaryBox(state.store.rounds.length - 1, { concern: c.concern, concern_kind: c.concern_kind, reply: c.coaching.reply })),
+    h("section", { class: "card" },
       h("h2", {}, "次の回の深掘りは、こう変わります"),
       h("p", { class: "notice" }, "今回の答えとコーチングを受けて、AIが作りました。"),
       c.coaching.next_questions.map((q) =>
         h("div", { class: "q" }, h("div", { class: "axis" }, AXIS_NAMES[q.axis]), h("div", { class: "because" }, `この問いにした理由：${q.because}`), q.text))),
-    growthCard(),
+    growthCard(false), // 過去の回のまとめは、この回のまとめと重なるので出さない
     h("div", { class: "row" }, h("button", { class: "primary", onclick: showHome }, "記録を見る"), h("button", { onclick: showStart }, "はじめに戻る")),
   );
 }
 
 // ---------------------------------------------------------------- 5. 育ちの記録
 
-function growthCard() {
+function growthCard(withPast = true) {
   const rounds = state.store.rounds;
   if (!rounds.length) return null;
   const rate = stepDoneRate(rounds);
@@ -692,10 +726,96 @@ function growthCard() {
     lessons.map((r) => h("details", { class: "learned" }, h("summary", {}, `${r.round}回目：${r.lesson.title}`), h("p", {}, r.lesson.body))),
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
-      h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）" : r.step_done === false ? "（やれなかった）" : "（次の回で確認）"))),
+      h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）"
+        : r.step_done === false ? `（やれなかった${r.step_reason ? `・${STEP_MISS_REASONS[r.step_reason]}` : ""}）` : "（次の回で確認）"))),
+    withPast ? pastSummaries(rounds) : null,
     // 手元モードの記録はファイルなので、画面からは消さない
     HAND ? null : h("div", { class: "row", style: "margin-top:20px" }, h("button", { onclick: reset }, "記録をすべて消す")),
   );
+}
+
+// 過去の回のまとめ。回を選ぶと、その回の記録に残っているもの（一歩・結果・理由・点数・学び）でまとめを作る
+function pastSummaries(rounds) {
+  const slot = h("div");
+  const sel = h("select", { "aria-label": "どの回のまとめか" },
+    rounds.map((r, i) => h("option", { value: String(i) }, `${r.round}回目（${r.date}）`)).reverse());
+  sel.value = String(rounds.length - 1);
+  const show = () => slot.replaceChildren(summaryBox(Number(sel.value))); // 回を替えたら選んだ項目も最初に戻す
+  sel.addEventListener("change", show);
+  show();
+  return h("details", { class: "learned" }, h("summary", {}, "過去の回のまとめを送る"), h("div", { class: "summary" }, sel, slot));
+}
+
+// ---------------------------------------------------------------- コーチに送るまとめ
+// 本人が項目を選び、コピーか共有で送る。託すノートからはどこにも送らない。
+// 最初から入れるのは一歩だけ（ひとこと・点数・引っかかりなど、人に見せたくないものもあるため）
+
+const SUMMARY_ITEMS = [
+  ["step", "一歩（前回の一歩とやれたか・今週の一歩）", true],
+  ["note", "やれなかったときの、ひとこと（一歩と一緒に入ります）", false],
+  ["scores", "4つの軸の点数", false],
+  ["lesson", "今日の学びの題", false],
+  ["concern", "いちばん引っかかっていること", false],
+  ["reply", "3分コーチングでの答え", false],
+];
+
+function summaryBox(index, extra = {}) {
+  const rounds = state.store.rounds;
+  const r = rounds[index];
+  const prev = rounds[index - 1];
+  const has = {
+    step: Boolean(r.step || prev?.step),
+    note: Boolean(prev?.step && stepMiss(prev.step_done, prev.step_reason, prev.step_note).note),
+    scores: true,
+    lesson: Boolean(r.lesson?.title),
+    concern: Boolean(extra.concern?.trim()),
+    reply: Boolean(extra.reply?.trim()),
+  };
+  const pick = Object.fromEntries(SUMMARY_ITEMS.map(([k, , on]) => [k, on && has[k]]));
+  const text = h("textarea", { readonly: true, rows: "6", "aria-label": "まとめの文" });
+  const status = h("p", { class: "notice", role: "status" });
+  const copy = h("button", { class: "primary" }, "コピー");
+  const share = typeof navigator.share === "function" ? h("button", {}, "共有") : null;
+
+  const update = () => {
+    const summary = roundSummary(ROLE_NAME[state.role], rounds, index, pick, extra);
+    const empty = !summary.includes("\n"); // 見出しの1行だけなら、送るものがない
+    text.value = empty ? "" : summary;
+    copy.disabled = empty;
+    if (share) share.disabled = empty;
+    status.textContent = empty ? "入れる項目を1つ以上選んでください。" : "";
+  };
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text.value);
+      status.textContent = "コピーしました。LINE やメールに貼り付けて送ってください。";
+    } catch {
+      text.focus();
+      text.select();
+      status.textContent = "自動ではコピーできませんでした。選んである文を、長押しやメニューからコピーしてください。";
+    }
+  });
+  share?.addEventListener("click", async () => {
+    try {
+      await navigator.share({ text: text.value });
+    } catch (e) {
+      if (e?.name !== "AbortError") status.textContent = "共有できませんでした。「コピー」を使ってください。"; // 取り消しは何も出さない
+    }
+  });
+
+  const checks = SUMMARY_ITEMS.filter(([k]) => has[k]).map(([k, label]) => {
+    const box = h("input", { type: "checkbox" });
+    box.checked = pick[k];
+    box.addEventListener("change", () => { pick[k] = box.checked; update(); });
+    return h("label", {}, box, h("span", {}, label));
+  });
+  update();
+  return h("div", { class: "summary" },
+    h("div", { class: "steps" }, checks),
+    text,
+    h("div", { class: "row" }, copy, share),
+    status,
+    h("p", { class: "notice" }, "このまとめを作るときは、どこにも送りません。「共有」を押すと、選んだアプリに渡ります。"));
 }
 
 // 推移は軸ごとに1行ずつ（4本を1枚に重ねると、同じ点が続いたとき線と記号がぶつかって読めないため）。

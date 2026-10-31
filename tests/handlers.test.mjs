@@ -114,3 +114,40 @@ test("1回目：従業員が数人の社長には、推移4問を「幹部」な
   assert.match(sent[0].content, /問題が起きたとき、仕事を任せている人が/);
   assert.match(sent[0].content, /会社の数字と今後の方向を、仕事を任せている人と/);
 });
+
+test("前回の一歩：やれなかった理由と一言を渡し、やれたときは捨て、候補にない理由と長すぎる一言は止める", async () => {
+  const base = {
+    "/api/diagnose": [{ role: "ceo", round: 2, fixed, deep: [] }, OUT.diagnose],
+    "/api/coach": [{ role: "ceo", question: "q", reply: "r", fixed }, OUT.coach],
+  };
+  for (const [path, [body, out]] of Object.entries(base)) {
+    let { handlers, sent } = setup(out);
+    await handlers[path]({ ...body, prev_step: { text: "朝会を任せる", done: false, reason: "no_scene", note: "出張が\n続いた" } });
+    assert.match(sent[0].content, /前回の一歩「朝会を任せる」→ やれなかった（理由：その場面が来なかった／ひとこと：出張が 続いた）/, path);
+
+    ({ handlers, sent } = setup(out));
+    await handlers[path]({ ...body, prev_step: { text: "朝会を任せる", done: false } });
+    assert.match(sent[0].content, /前回の一歩「朝会を任せる」→ やれなかった\n/, path);
+
+    ({ handlers, sent } = setup(out));
+    await handlers[path]({ ...body, prev_step: { text: "朝会を任せる", done: true, reason: "time", note: "x" } });
+    assert.match(sent[0].content, /→ やれた\n/, path);
+    assert.doesNotMatch(sent[0].content, /理由：|ひとこと：/, path);
+
+    await assert.rejects(handlers[path]({ ...body, prev_step: { text: "x", done: false, reason: "money" } }), InputError, path);
+    await assert.rejects(handlers[path]({ ...body, prev_step: { text: "x", done: false, note: "あ".repeat(81) } }), InputError, path);
+    await assert.rejects(handlers[path]({ ...body, prev_step: { text: "x", done: false, reason: ["time"] } }), InputError, path);
+    await assert.rejects(handlers[path]({ ...body, prev_step: { text: "x", done: false, reason: { toString: null } } }), InputError, path);
+    await assert.rejects(handlers[path]({ ...body, concern: "x", concern_kind: { toString: null } }), InputError, path);
+  }
+});
+
+test("これまでの記録：やれなかった回の理由だけを添え、やれた回の理由は捨てる", async () => {
+  const { handlers, sent } = setup(OUT.diagnose);
+  const h = (round, step_done, step_reason) => ({ round, date: "2026-11-01", scores: { A: 1, B: 2, C: 3, D: 4 }, step: "一歩" + round, step_done, step_reason });
+  await handlers["/api/diagnose"]({ role: "ceo", round: 4, fixed, deep: [], history: [h(1, false, "heavy"), h(2, true, "time"), h(3, false)] });
+  assert.match(sent[0].content, /一歩「一歩1」→ やれなかった（気が進まなかった・言い出しにくかった）/);
+  assert.match(sent[0].content, /一歩「一歩2」→ やれた\n/);
+  assert.match(sent[0].content, /一歩「一歩3」→ やれなかった\n/);
+  await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 2, fixed, deep: [], history: [h(1, false, "money")] }), InputError);
+});
