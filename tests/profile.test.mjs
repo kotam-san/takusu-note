@@ -91,11 +91,15 @@ test("1回目の指示：プロフィールだけを手がかりに、場面を1
     const content = startContent(profileText(profileOf(role), role), QUESTIONS[role].fixed, "任せたいのに口を出してしまう");
     assert.match(content, /<concern>\n任せたいのに口を出してしまう\n<\/concern>/);
     assert.match(startContent(profileText(profileOf(role), role), QUESTIONS[role].fixed), /（記入なし）/);
+    assert.doesNotMatch(startContent(profileText(profileOf(role), role), QUESTIONS[role].fixed), /concern_kind/);
+    assert.match(startContent(profileText(profileOf(role), role), QUESTIONS[role].fixed, "", "relation"), /<concern_kind>\n関係・気持ちの行き違い\n<\/concern_kind>/);
     for (const k of ["A", "B", "C", "D"]) assert.ok(content.includes(QUESTIONS[role].fixed[k]));
   }
   assert.deepEqual(START_SCHEMA.required, ["next_questions", "fixed_examples"]);
   const good = { next_questions: ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: "q", because: "b" })), fixed_examples: { A: "a", B: "b", C: "c", D: "d" } };
   assert.equal(validQuestions(good), true);
+  assert.equal(validQuestions(good, 3), false);
+  assert.equal(validQuestions({ ...good, next_questions: good.next_questions.slice(0, 3) }, 3), true);
   assert.equal(validQuestions({ ...good, next_questions: good.next_questions.slice(1) }), false);
   assert.equal(validQuestions({ ...good, next_questions: [...good.next_questions.slice(1), { axis: "Z", text: "q" }] }), false);
 });

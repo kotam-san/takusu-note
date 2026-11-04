@@ -30,9 +30,10 @@ async function start(body, ai, count) {
   const role = checkRole(body.role);
   const profile = checkProfile(body.profile, role);
   const concern = checkText(body.concern ?? "", 400, "concern");
-  const content = startContent(profileText(profile, role), fixedFor(role, profile), concern);
+  const kind = checkKind(body.concern_kind);
+  const content = startContent(profileText(profile, role), fixedFor(role, profile), concern, kind);
   const out = await ai(startSystem(role), content, START_SCHEMA, 3000);
-  if (!validQuestions(out)) throw new OutputError("start shape");
+  if (!validQuestions(out, START_DEEP_COUNT)) throw new OutputError("start shape");
   await count("rounds_profiled");
   return out;
 }
@@ -49,7 +50,7 @@ async function diagnose(body, ai, count) {
     score: checkInt(d.score, 1, 4, "deep.score"),
   }));
   const concern = checkText(body.concern ?? "", 400, "concern");
-  const kind = checkKind(body.concern_kind, concern);
+  const kind = checkKind(body.concern_kind);
   const history = checkHistory(body.history);
   const prev = checkPrev(body.prev_step);
   const profile = body.profile == null ? null : checkProfile(body.profile, role);
@@ -91,7 +92,7 @@ async function coach(body, ai, count) {
   const reply = checkText(body.reply, 800, "reply");
   const summary = checkText(body.summary ?? "", 600, "summary");
   const concern = checkText(body.concern ?? "", 400, "concern");
-  const kind = checkKind(body.concern_kind, concern);
+  const kind = checkKind(body.concern_kind);
   const fixed = checkFixed(body.fixed);
   const history = checkHistory(body.history);
   const prev = checkPrev(body.prev_step);
@@ -139,9 +140,10 @@ export function validCoaching(out) {
   return out?.step_options?.length === 3 && filled(out.reflection) && validQuestions(out);
 }
 
-// 次の深掘り6問と推移4問の例（1回目の /api/start と、コーチングの後の両方で使う）
-export function validQuestions(out) {
-  return out?.next_questions?.length === 6 &&
+// 次の深掘り（コーチングの後は6問、1回目の /api/start は START_DEEP_COUNT 問）と推移4問の例
+export const START_DEEP_COUNT = 3;
+export function validQuestions(out, count = 6) {
+  return out?.next_questions?.length === count &&
     out.next_questions.every((q) => AXIS_KEYS.includes(q?.axis) && filled(q.text)) &&
     AXIS_KEYS.every((k) => filled(out.fixed_examples?.[k]));
 }
@@ -201,15 +203,15 @@ function checkProfile(v, role) {
   if (!p) throw new InputError("profile の形か選択肢が違います");
   return p;
 }
-// 引っかかりの中身。本文がなければ中身は捨てる（選んであっても AI に渡さない）
-function checkKind(v, concern) {
+// 引っかかりの中身。文章がなくても、選んであれば AI に渡す（はじめに「種類だけ」選ぶ使い方のため）
+function checkKind(v) {
   if (v != null && v !== "" && (typeof v !== "string" || !Object.hasOwn(CONCERN_KINDS, v))) throw new InputError("concern_kind の選択肢が違います");
-  return concern ? v || "" : "";
+  return v || "";
 }
-// 本文があって中身を選んでいないときは「まだ分からない」として渡す
+// 文章があって中身を選んでいないときは「まだ分からない」として渡す。文章も中身もなければ中身は出さない
 function concernBlock(concern, kind) {
   const lines = ["<concern>", concern || "（記入なし）", "</concern>"];
-  if (concern) lines.push("<concern_kind>", CONCERN_KINDS[kind || "unknown"], "</concern_kind>");
+  if (concern || kind) lines.push("<concern_kind>", CONCERN_KINDS[kind || "unknown"], "</concern_kind>");
   return lines;
 }
 function profileBlock(profile, role) {

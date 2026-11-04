@@ -6,7 +6,7 @@ import {
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
-  AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, firstRound, fixedFor,
+  AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, FIRST_DEEP_PICK, firstRound, fixedFor,
 } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -303,10 +303,11 @@ function showProfile() {
   const industryOther = h("input", { class: "text-in", maxlength: String(INDUSTRY_OTHER_MAX), value: p?.industry_other ?? "", placeholder: "例：印刷", "aria-label": "業種（その他）" });
   const otherRow = h("div", { style: "margin-top:8px" }, "業種を書いてください：", industryOther);
   const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
-  const concern = first
-    ? h("textarea", { maxlength: "400", placeholder: role === "ceo" ? "例：任せたいのに、結局自分が決めてしまう" : "例：社長が何を目指しているのか分からないまま動いている", "aria-label": "いま、いちばん引っかかっていること（任意）" })
+  // 1回目だけ、引っかかりの「種類」を選ぶ（任意）。文章で書くのは、問いに答えたあとの「ひとこと」でよい
+  const concernKinds = first
+    ? h("div", { class: "steps", role: "radiogroup", "aria-label": "いま引っかかっていることの種類（任意）" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
+      h("label", {}, h("input", { type: "radio", name: "p-concern-kind", value, checked: state.store.first_concern_kind === value }), h("span", {}, label))))
     : null;
-  if (concern) concern.value = state.store.first_concern ?? "";
   const err = h("div");
   const submit = h("button", { class: "primary" }, first ? "1回目の問いを作る" : "保存する");
 
@@ -324,8 +325,8 @@ function showProfile() {
       if (!(await save()) && HAND) return err.append(saveFailed()); // 公開版は保存できなくても続ける（今まで通り）
       return showHome();
     }
-    state.store.first_concern = concern.value.trim() || null;
-    const made = await makeFirstRound(role, profile, state.store.first_concern);
+    state.store.first_concern_kind = app.querySelector("input[name=p-concern-kind]:checked")?.value ?? null;
+    const made = await makeFirstRound(role, profile, state.store.first_concern ?? "", state.store.first_concern_kind ?? "");
     state.store.next_deep = made.deep;
     state.store.next_examples = made.examples;
     if (!(await save()) && HAND) return err.append(saveFailed());
@@ -342,26 +343,27 @@ function showProfile() {
       title ? h("div", { class: "q" }, "役職（任意）", h("div", {}, title)) : null,
       ROLE_FIELDS[role].map(choiceGroup),
       otherRow),
-    concern ? h("section", { class: "card" },
-      h("h2", {}, "いま、いちばん引っかかっていること（任意）"),
-      h("p", { class: "notice" }, "書いてもらうと、1回目の問いをそこに寄せて作ります。実名や取引先の名前は書かないでください。"),
-      concern) : null,
+    concernKinds ? h("section", { class: "card" },
+      h("h2", {}, "いま引っかかっていることは、どれに近いですか（任意）"),
+      h("p", { class: "notice" }, "選ぶと、1回目の問いをそこに寄せて作ります。文章は、問いに答えたあとに書けます。"),
+      concernKinds) : null,
     h("div", { class: "row" }, submit, first ? null : h("button", { onclick: showHome }, "やめる")),
     err,
   );
   syncOther();
 }
 
-// 1回目の深掘り6問と例。A は AI に作らせ、失敗したら B（出し分け）で続ける
-async function makeFirstRound(role, profile, concern) {
+// 1回目の深掘り3問と例。A は AI に作らせ、失敗したら B（出し分け）で続ける
+async function makeFirstRound(role, profile, concern, kind) {
   try {
-    const out = await api("/api/start", { role, profile, concern: concern ?? "" });
+    const out = await api("/api/start", { role, profile, concern: concern ?? "", concern_kind: kind ?? "" });
     return {
       deep: out.next_questions.map(({ axis, text, because }) => ({ axis, text, because })),
       examples: Object.fromEntries(AXIS_KEYS.map((k) => [k, out.fixed_examples[k].slice(0, 120)])),
     };
   } catch {
-    return firstRound(role, profile);
+    const fallback = firstRound(role, profile);
+    return { ...fallback, deep: FIRST_DEEP_PICK.map((i) => fallback.deep[i]) };
   }
 }
 
@@ -457,15 +459,17 @@ function showQuiz(resumed = false) {
       d.text,
       scaleFor(`d-${i}`, d.text)));
 
-  const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう", "aria-label": "いま、いちばん引っかかっていること" });
-  if (round === 1) concern.value = state.store.first_concern ?? ""; // はじめに書いたものを入れておき、直せるようにする
+  // 1回目は、引っかかりの種類をはじめに選んであるので、ここは文章だけ（ひとこと・任意）
+  const concernLabel = round === 1 ? "ひとこと（任意）" : "いま、いちばん引っかかっていること";
+  const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう", "aria-label": concernLabel });
+  if (round === 1) concern.value = state.store.first_concern ?? ""; // 前の版で書いたものがあれば入れておき、直せるようにする
   // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
   const kinds = h("div", { class: "steps" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
     h("label", {}, h("input", { type: "radio", name: "concern-kind", value }), h("span", {}, label))));
   const err = h("div");
   const submit = h("button", { class: "primary" }, "AIの見立てを見る");
   const pick = (name) => Number(app.querySelector(`input[name=${name}]:checked`)?.value);
-  const kindPicked = () => app.querySelector("input[name=concern-kind]:checked")?.value ?? "";
+  const kindPicked = () => (round === 1 ? state.store.first_concern_kind : app.querySelector("input[name=concern-kind]:checked")?.value) ?? "";
 
   // 入力のたびに下書きへ（ページを離れても戻せるように）
   const capture = () => {
@@ -491,7 +495,8 @@ function showQuiz(resumed = false) {
     AXIS_KEYS.forEach((k) => (app.querySelector(`input[name=f-${k}][value="${s.fixed[k]}"]`).checked = true));
     deepList.forEach((_, i) => (app.querySelector(`input[name=d-${i}][value="${s.deep[i] ?? 2}"]`).checked = true));
     concern.value = s.concern;
-    app.querySelector(`input[name=concern-kind][value="${s.concern_kind}"]`).checked = true;
+    const sampleKind = app.querySelector(`input[name=concern-kind][value="${s.concern_kind}"]`);
+    if (sampleKind) sampleKind.checked = true;
     err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
     capture();
   };
@@ -507,7 +512,7 @@ function showQuiz(resumed = false) {
     const last = state.store.rounds.at(-1);
     const body = {
       role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
-      concern_kind: concern.value.trim() ? kindPicked() : "",
+      concern_kind: kindPicked(),
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done, step_reason }) =>
         ({ round, date, scores, step: step || "", step_done: step_done ?? null, ...(step_done === false && step_reason ? { step_reason } : {}) })),
       prev_step: last?.step ? { text: last.step, done: last.step_done ?? null, ...stepMiss(last.step_done, last.step_reason, last.step_note) } : null,
@@ -533,10 +538,10 @@ function showQuiz(resumed = false) {
     h("section", { class: "card", onchange: capture }, h("h2", {}, "毎回同じ4つの問い"), h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。"), fixedBlocks),
     h("section", { class: "card", onchange: capture }, h("h2", {}, adaptive ? "今回の深掘り" : "深掘りの問い"), deepBlocks),
     h("section", { class: "card", onchange: capture, oninput: capture },
-      h("h2", {}, "いま、いちばん引っかかっていること"),
-      h("p", { class: "notice" }, "実名や取引先の名前は書かないでください。"),
+      h("h2", {}, concernLabel),
+      h("p", { class: "notice" }, round === 1 ? "ここまでの問いで言い足したいことがあれば。実名や取引先の名前は書かないでください。" : "実名や取引先の名前は書かないでください。"),
       concern,
-      h("div", { class: "q" }, "その難しさは、どれにいちばん近いですか（任意）", kinds)),
+      round === 1 ? null : h("div", { class: "q" }, "その難しさは、どれにいちばん近いですか（任意）", kinds)),
     h("div", { class: "row" }, submit, h("button", { onclick: fillSample }, "回答例で試す")),
     err,
   );

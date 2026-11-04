@@ -1,5 +1,7 @@
 // AI への指示。立場（社長／幹部）ごとに、同じ4つの軸を見る。
 
+import { CONCERN_KINDS } from "../../docs/questions.js";
+
 export const AXES = {
   A: "委任の実態（任せる／任される）",
   B: "意思決定の依存度（社長がいなくても決まるか）",
@@ -80,19 +82,20 @@ export function coachSystem(role) {
 }
 
 // はじめて使うときの1回目：答えはまだなく、本人が選んだプロフィールだけを手がかりに問いを作る
+// 1回目は気軽に始められるよう、深掘りは3問だけ（推移を見る4問と合わせて7問）
 export function startSystem(role) {
   return `${COMMON}
 
 いま話している相手は「${ROLES[role]}」で、託すノートをはじめて使います。
-まだ点数も答えもありません。手がかりは、本人が選んだプロフィール（<profile>）と、書いてあれば「いちばん引っかかっていること」（<concern>）です。
+まだ点数も答えもありません。手がかりは、本人が選んだプロフィール（<profile>）と、書いてあれば「いちばん引っかかっていること」（<concern>）、本人が選んだ引っかかりの中身（<concern_kind>）です。
 1回目の問いを、この人の立場と職場で思い浮かべやすい形にしてください。
 
-1. next_questions：1回目の「深掘りの問い」を6つ。1〜4点で答えられる言い切りの文にする
-   - 軸の配分は A を2つ・B を2つ・C を1つ・D を1つ。この順に並べる
-   - <concern> に書いてあれば、6問のうち半分ほどはその言葉につながる場面にする。残りは軸の全体を見るために、プロフィールから選ぶ
+1. next_questions：1回目の「深掘りの問い」を3つ。1〜4点で答えられる言い切りの文にする
+   - 軸の配分は A・B・C を1つずつ。この順に並べる（D は「推移を見る4問」が聞くので、ここでは聞かない）
+   - <concern_kind> が「まだ分からない」以外なら、3問のうち1〜2問は、その中身が出やすい場面にする（例：関係・気持ちの行き違いなら、行き違いが起きる場面）。<concern> に書いてあれば、その言葉につながる場面にも寄せる。残りは軸の全体を見るために、プロフィールから選ぶ
    - 引っかかりにつながる問いでは原因を決めつけず、進め方・関係・数字や方針・任せる範囲など、違う角度の場面から聞く
    - 従業員数（社長）か直属の部下の数（幹部）・今の立場の年数・業種・役職から、この人が実際に出会いそうな場面を選ぶ（部下がいない人に部下を前提にした問いを出さない、従業員が数人の会社の社長に「幹部」を前提にしない、など）
-   - axis：A〜D のどれを深掘りするか
+   - axis：A〜C のどれを深掘りするか
    - text：問い（50字以内）
    - because：なぜこの問いにしたか。「〜とうかがったので」の形で、プロフィールか引っかかりのどこを受けたかを示す（50字以内）
    - 1つの問いでは場面を1つに絞る（「この1ヶ月、〇〇を任せたとき」のように、いつ・どの仕事かが分かる形）。仕事全体を広く聞かない
@@ -102,7 +105,7 @@ export function startSystem(role) {
 }
 
 // 1回目の依頼の本文。中継と Claude Code 版で同じものを使う
-export function startContent(profileLine, fixedTexts, concern = "") {
+export function startContent(profileLine, fixedTexts, concern = "", kind = "") {
   return [
     "<profile>",
     profileLine,
@@ -111,6 +114,7 @@ export function startContent(profileLine, fixedTexts, concern = "") {
     "<concern>",
     concern || "（記入なし）",
     "</concern>",
+    ...(concern || kind ? ["", "<concern_kind>", CONCERN_KINDS[kind || "unknown"], "</concern_kind>"] : []),
     "",
     "<fixed>",
     ...["A", "B", "C", "D"].map((k) => `- ${k}（${AXES[k]}）：${fixedTexts[k]}`),

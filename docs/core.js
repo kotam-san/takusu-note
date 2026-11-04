@@ -35,6 +35,7 @@ export function validateStore(data) {
   }
   if (data.profile != null && !validateProfile(data.profile)) return null;
   if (data.first_concern != null && !isStr(data.first_concern, 400)) return null;
+  if (data.first_concern_kind != null && !(typeof data.first_concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, data.first_concern_kind))) return null;
   if (data.next_examples != null) {
     if (typeof data.next_examples !== "object" || !AXIS_KEYS.every((k) => isStr(data.next_examples[k], 120))) return null;
   }
@@ -53,7 +54,7 @@ function validMiss(r) {
 }
 
 export function emptyStore() {
-  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null };
+  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null, first_concern_kind: null };
 }
 
 // ---------------------------------------------------------------- 学びと途中の回
@@ -150,9 +151,12 @@ export function roundSummary(roleName, rounds, index, pick = {}, extra = {}) {
   if (pick.scores) lines.push(`4つの軸（1〜4）：${AXIS_KEYS.map((k) => `${AXIS_NAMES[k]} ${r.scores[k]}`).join("／")}`);
   if (pick.lesson && r.lesson?.title) lines.push(`今日の学び：${r.lesson.title}`);
   const concern = typeof extra.concern === "string" ? extra.concern.trim() : "";
+  const kindKey = typeof extra.concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, extra.concern_kind) ? extra.concern_kind : "";
   if (pick.concern && concern) {
-    const kind = Object.hasOwn(CONCERN_KINDS, extra.concern_kind ?? "") ? `（中身：${CONCERN_KINDS[extra.concern_kind]}）` : "";
+    const kind = kindKey ? `（中身：${CONCERN_KINDS[kindKey]}）` : "";
     lines.push(`いちばん引っかかっていること：${oneLine(concern)}${kind}`);
+  } else if (pick.concern && kindKey && kindKey !== "unknown") {
+    lines.push(`引っかかりの中身：${CONCERN_KINDS[kindKey]}`); // 文章は書かず、中身だけ選んだとき
   }
   const reply = typeof extra.reply === "string" ? extra.reply.trim() : "";
   if (pick.reply && reply) lines.push(`3分コーチングでの答え：${oneLine(reply)}`);

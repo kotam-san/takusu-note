@@ -6,9 +6,10 @@ import { InputError, OutputError, makeHandlers } from "../worker/src/handlers.js
 import { COACH_SCHEMA, DIAGNOSE_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, startSystem } from "../worker/src/prompts.js";
 
 const qs = ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: "q", because: "b" }));
+const qs3 = ["A", "B", "C"].map((axis) => ({ axis, text: "q", because: "b" })); // 1回目は深掘り3問
 const ex = { A: "a", B: "b", C: "c", D: "d" };
 const OUT = {
-  start: { next_questions: qs, fixed_examples: ex },
+  start: { next_questions: qs3, fixed_examples: ex },
   diagnose: {
     summary: "s", axis_notes: [1, 2, 3, 4], coaching_question: "q", coaching_choices: ["a", "b"],
     lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
@@ -121,10 +122,28 @@ test("引っかかりの中身：選んだものを渡し、未選択は「ま�
     }
     const { handlers, sent } = setup(out);
     await handlers[path]({ ...body, concern: "", concern_kind: "relation" });
-    assert.doesNotMatch(sent[0].content, /concern_kind/, `${path} 本文なし`);
+    assert.match(sent[0].content, /<concern_kind>\n関係・気持ちの行き違い\n<\/concern_kind>/, `${path} 文章なしでも選んだ中身は渡す`);
     assert.match(sent[0].content, /（記入なし）/);
+    const none = setup(out);
+    await none.handlers[path]({ ...body, concern: "", concern_kind: "" });
+    assert.doesNotMatch(none.sent[0].content, /concern_kind/, `${path} 文章も中身もなければ渡さない`);
     await assert.rejects(handlers[path]({ ...body, concern: "x", concern_kind: "money" }), InputError);
     await assert.rejects(handlers[path]({ ...body, concern: "x", concern_kind: 3 }), InputError);
+  }
+});
+
+test("1回目の問い：深掘りは3問だけ通し、選んだ引っかかりの中身は文章がなくても渡す", async () => {
+  const { handlers, sent } = setup(OUT.start);
+  await handlers["/api/start"]({ role: "ceo", profile, concern: "", concern_kind: "scope" });
+  assert.match(sent[0].content, /<concern_kind>\nどこまで任せるかの線引き\n<\/concern_kind>/);
+  assert.match(sent[0].content, /（記入なし）/);
+  const plain = setup(OUT.start);
+  await plain.handlers["/api/start"]({ role: "ceo", profile });
+  assert.doesNotMatch(plain.sent[0].content, /concern_kind/);
+  await assert.rejects(handlers["/api/start"]({ role: "ceo", profile, concern_kind: "money" }), InputError);
+  for (const bad of [qs, qs3.slice(1), []]) {
+    const { handlers: h } = setup({ next_questions: bad, fixed_examples: ex });
+    await assert.rejects(h["/api/start"]({ role: "ceo", profile }), OutputError);
   }
 });
 
