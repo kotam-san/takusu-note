@@ -231,7 +231,10 @@ const DEEP_RULES = [
   },
 ];
 
-// プロフィールから1回目の深掘り6問と例を作る（AIを使わない）
+// 1回目の深掘りは3問だけ（気軽に始められるように）。AI が使えないときの代わりは、6問のうち A・B・C を1つずつ
+export const FIRST_DEEP_PICK = [0, 2, 4];
+
+// プロフィールから1回目の深掘り6問と例を作る（AIを使わない）。1回目に出すのは FIRST_DEEP_PICK の3問
 export function firstRound(role, profile) {
   const base = QUESTIONS[role];
   const deep = base.deep.map((d) => ({ ...d }));

@@ -162,3 +162,21 @@ test("まとめ：1回目・結果が未確認・学びや引っかかりのな�
   const done = [round(1, { A: 1, B: 1, C: 1, D: 1 }, { step: "x", step_done: true }), round(2, { A: 1, B: 1, C: 1, D: 1 }, { step: "y" })];
   assert.match(roundSummary("幹部", done, 1, { step: true, note: true }), /前回の一歩：x → やれた\n今週の一歩：y$/);
 });
+
+test("記録の検証：はじめに選んだ引っかかりの中身（first_concern_kind）は候補のキーだけ通す", () => {
+  const ok = { ...emptyStore(), first_concern_kind: "scope" };
+  assert.equal(validateStore(ok), ok);
+  const old = { ...emptyStore() };
+  delete old.first_concern_kind; // この項目を持たない前からの記録も通る
+  assert.equal(validateStore(old), old);
+  for (const bad of ["money", 3, { toString: null }, ["scope"]]) {
+    assert.equal(validateStore({ ...emptyStore(), first_concern_kind: bad }), null, JSON.stringify(bad));
+  }
+});
+
+test("まとめ：文章を書かず中身だけ選んだときは、中身だけ1行出す（「まだ分からない」は出さない）", () => {
+  const rounds = [round(1, { A: 1, B: 2, C: 3, D: 4 }, { step: "朝会を任せる" })];
+  assert.match(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "relation" }), /\n引っかかりの中身：関係・気持ちの行き違い$/);
+  assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "unknown" }), /引っかかり/);
+  assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: { toString: null } }), /引っかかり/);
+});

@@ -202,7 +202,7 @@ function roundMarkdown(r, role, roundId) {
     "## いちばん引っかかっていること",
     str(r.concern, 400) || "（記入なし）",
     // 中身は本人が選んだときだけ（選ばなかったことと「まだ分からない」を分けて残す）
-    ...(str(r.concern, 400) && Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? [`中身：${CONCERN_KINDS[r.concern_kind]}`] : []),
+    ...(Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? [`中身：${CONCERN_KINDS[r.concern_kind]}`] : []), // 文章を書かず、中身だけ選んだ回も残す
     "",
     "## 見立て",
     str(d.summary, 1000),
@@ -285,7 +285,8 @@ function aboutMeHead() {
 function aboutMeEntry(r, role) {
   const p = validateProfile(r.profile, role);
   const concern = str(r.concern, 400);
-  const kind = concern && Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? `（中身：${CONCERN_KINDS[r.concern_kind]}）` : "";
+  const kindName = Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? CONCERN_KINDS[r.concern_kind] : "";
+  const kind = concern && kindName ? `（中身：${kindName}）` : "";
   const prev = prevLine(r);
   const reply = oneLine(str(r.coaching?.reply, 800));
   return [
@@ -293,7 +294,7 @@ function aboutMeEntry(r, role) {
     "",
     ...(p ? [`- わたしについて：${profileText(p, role)}`] : []),
     `- 自己評価（4段階）：${["A", "B", "C", "D"].map((k) => `${AXIS_NAMES[k]} ${r.fixed?.[k]?.score ?? "?"}`).join("／")}`,
-    ...(concern ? [`- いちばん引っかかっていること：${oneLine(concern)}${kind}`] : []),
+    ...(concern ? [`- いちばん引っかかっていること：${oneLine(concern)}${kind}`] : kindName ? [`- 引っかかりの中身：${kindName}`] : []),
     ...(prev ? [`- 前の回の一歩：${prev}`] : []),
     ...(reply ? [`- 問い「${oneLine(str(r.coaching?.question, 300))}」へのわたしの答え：${reply}`] : []),
     ...(str(r.step, 80) ? [`- 今週の一歩：${str(r.step, 80)}`] : []),

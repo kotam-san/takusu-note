@@ -10,6 +10,7 @@ process.stdin.on("end", () => {
   fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ args, stdin, pid: process.pid }) + "\n");
   const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
   const qs = ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: `問い${axis}`, because: "理由" }));
+  const qs3 = ["A", "B", "C"].map((axis) => ({ axis, text: `問い${axis}`, because: "理由" })); // 1回目は3問
   const ex = { A: "例a", B: "例b", C: "例c", D: "例d" };
   const out = schema.required.includes("coaching_choices")
     ? {
@@ -19,7 +20,7 @@ process.stdin.on("end", () => {
     }
     : schema.required.includes("step_options")
       ? { reflection: "受け止め", step_options: ["一歩1", "一歩2", "一歩3"], next_questions: qs, fixed_examples: ex }
-      : { next_questions: qs, fixed_examples: ex };
+      : { next_questions: qs3, fixed_examples: ex };
   const ok = (structured_output) => JSON.stringify({ type: "result", subtype: "success", is_error: false, structured_output });
   switch (mode) {
     case "ok": return process.stdout.write(ok(out));

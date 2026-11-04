@@ -99,7 +99,7 @@ test("3つの道が通り、claude には何も読み書きさせない引数で
   fs.rmSync(LOG, { force: true });
   const s = await req("/api/start", { method: "POST", body: { role: "ceo", profile, concern: "固有の悩みQ7" } });
   assert.equal(s.status, 200);
-  assert.equal((await s.json()).next_questions.length, 6);
+  assert.equal((await s.json()).next_questions.length, 3);
   const d = await req("/api/diagnose", { method: "POST", body: { role: "ceo", round: 1, fixed, deep: [], profile } });
   assert.equal(d.status, 200);
   const c = await req("/api/coach", { method: "POST", body: { role: "ceo", question: "q", reply: "r", fixed } });
@@ -285,11 +285,13 @@ test("前回の一歩をやれなかった理由と一言を、1回ごとの記�
   assert.match(fs.readFileSync(path.join(DATA, "rounds", three.file), "utf8"), /## 前回の一歩\ny → やれなかった\n/);
 });
 
-test("記録：引っかかりの中身は、本人が選んだときだけ1行出す", async () => {
+test("記録：引っかかりの中身は、本人が選んだときだけ1行出す（文章がなくても）", async () => {
   const one = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind1234", record: { ...record, concern_kind: "relation" } } })).json();
   assert.match(fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8"), /引っかかり\n中身：関係・気持ちの行き違い\n/);
   const two = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind5678", record: { ...record, concern: "", concern_kind: "relation" } } })).json();
-  assert.doesNotMatch(fs.readFileSync(path.join(DATA, "rounds", two.file), "utf8"), /中身：/);
+  assert.match(fs.readFileSync(path.join(DATA, "rounds", two.file), "utf8"), /（記入なし）\n中身：関係・気持ちの行き違い\n/);
+  const none = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: "kind9999", record: { ...record, concern: "", concern_kind: "" } } })).json();
+  assert.doesNotMatch(fs.readFileSync(path.join(DATA, "rounds", none.file), "utf8"), /中身：/);
 });
 
 test("記録の id・日付・回が違えば 400", async () => {
