@@ -2,7 +2,8 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, clipLesson, draftMatches, emptyStore, localDate, roundSummary, seriesByAxis, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, draftMatches, emptyAnswers, emptyStore, firstOpenStep, localDate, quizOrder,
+  roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
@@ -448,52 +449,28 @@ function showQuiz(resumed = false) {
   const adaptive = Boolean(state.store.next_deep);
 
   // 1問ずつの順番。最後に「ひとこと／引っかかり」の画面が付く
-  const steps = [
-    ...AXIS_KEYS.map((k) => ({ type: "fixed", k, name: `f-${k}`, text: fixedText[k] })),
-    ...deepList.map((d, i) => ({ type: "deep", d, name: `d-${i}`, text: d.text })),
-  ];
+  const steps = quizOrder(deepList.length).map((step) => step.type === "fixed"
+    ? { ...step, name: `f-${step.k}`, text: fixedText[step.k] }
+    : { ...step, d: deepList[step.i], name: `d-${step.i}`, text: deepList[step.i].text });
   const total = steps.length;
 
-  const answers = { fixed: {}, deep: [], concern: "", kind: "" };
-  const score = (step) => (step.type === "fixed" ? answers.fixed[step.k] : answers.deep[Number(step.name.slice(2))]) || null;
-  const setScore = (step, v) => { if (step.type === "fixed") answers.fixed[step.k] = v; else answers.deep[Number(step.name.slice(2))] = v; };
-  const valid = (v) => SCALE.some((s) => s.value === Number(v));
+  // 答えの持ち方と下書きへの出し入れは core.js（試験あり）
+  let answers = emptyAnswers();
 
   // 1回目は、引っかかりの種類をはじめに選んであるので、最後の画面は文章だけ（ひとこと・任意）
   const concernLabel = round === 1 ? "ひとこと（任意）" : "いま、いちばん引っかかっていること";
   if (round === 1) answers.concern = state.store.first_concern ?? ""; // 前の版で書いたものがあれば入れておき、直せるようにする
+  const score = (step) => scoreOf(answers, step);
   const kindPicked = () => (round === 1 ? state.store.first_concern_kind : answers.kind) ?? "";
 
   // 入力のたびに下書きへ（ページを離れても戻せるように）
   const capture = () => {
-    draft.quiz = {
-      fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, answers.fixed[k] || null])),
-      deep: deepList.map((_, i) => answers.deep[i] || null),
-      concern: answers.concern,
-      kind: kindPicked(),
-    };
+    draft.quiz = answersToQuiz(answers, deepList.length, kindPicked());
     writeDraft();
-  };
-  const restore = () => {
-    const d = draft.quiz ?? {};
-    AXIS_KEYS.forEach((k) => { if (valid(d.fixed?.[k])) answers.fixed[k] = Number(d.fixed[k]); });
-    deepList.forEach((_, i) => { if (valid(d.deep?.[i])) answers.deep[i] = Number(d.deep[i]); });
-    if (typeof d.concern === "string") answers.concern = d.concern;
-    if (round !== 1 && d.kind in CONCERN_KINDS) answers.kind = d.kind;
-  };
-
-  // 最初の未回答の問い。全部答えてあれば最後の画面
-  const firstOpen = () => {
-    const i = steps.findIndex((s) => !score(s));
-    return i < 0 ? total : i;
   };
 
   const fillSample = () => {
-    const s = SAMPLE[role];
-    AXIS_KEYS.forEach((k) => (answers.fixed[k] = Number(s.fixed[k])));
-    deepList.forEach((_, i) => (answers.deep[i] = Number(s.deep[i] ?? 2)));
-    answers.concern = s.concern;
-    if (round !== 1 && s.concern_kind in CONCERN_KINDS) answers.kind = s.concern_kind;
+    answers = sampleAnswers(SAMPLE[role], deepList.length, round, answers);
     capture();
     render(total, h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
   };
@@ -572,13 +549,13 @@ function showQuiz(resumed = false) {
         SCALE.map((s) =>
           h("label", {}, h("input", { type: "radio", name: step.name, value: s.value, checked: score(step) === s.value }), h("span", {}, s.label))));
       // 選んだ点は、矢印キーで選択が変わっただけでも残す（進まない）
-      group.addEventListener("change", (ev) => { setScore(step, Number(ev.target.value)); err.replaceChildren(); capture(); });
+      group.addEventListener("change", (ev) => { setScore(answers, step, Number(ev.target.value)); err.replaceChildren(); capture(); });
       // 進むのは、マウス・タッチのクリック（detail > 0）のときだけ。矢印キーやスペースの選択では進めない
       group.addEventListener("click", (ev) => {
         if (ev.detail === 0 || !group.isConnected) return;
         const input = ev.target.closest("label")?.querySelector("input") ?? (ev.target.matches("input") ? ev.target : null);
         if (!input) return;
-        setScore(step, Number(input.value));
+        setScore(answers, step, Number(input.value));
         go(i + 1);
       });
       const fixed = step.type === "fixed";
@@ -611,9 +588,9 @@ function showQuiz(resumed = false) {
     app.querySelector("h2[tabindex]")?.focus({ preventScroll: true });
   };
 
-  if (resumed) restore();
+  if (resumed) answers = answersFromQuiz(draft.quiz, deepList.length, round, answers);
   else capture();
-  render(firstOpen(), null, resumed ? resumedNote() : null);
+  render(firstOpenStep(answers, deepList.length), null, resumed ? resumedNote() : null);
 }
 
 // ---------------------------------------------------------------- 4. 見立てと学び、3分コーチング
