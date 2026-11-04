@@ -116,7 +116,9 @@ async function coach(body, ai, count) {
     "</reply>",
   ].join("\n");
 
-  const out = await ai(coachSystem(role), content, COACH_SCHEMA, 4000);
+  const raw = await ai(coachSystem(role), content, COACH_SCHEMA, 4000);
+  // 指示は3つだが、AI が4つ返すことがあり、そのたびに1周が止まっていた。空でない先頭の3つに切って通す
+  const out = Array.isArray(raw?.step_options) ? { ...raw, step_options: raw.step_options.filter(filled).slice(0, 3) } : raw;
   if (!validCoaching(out)) throw new OutputError("coach shape");
   await count("rounds_completed");
   return out;

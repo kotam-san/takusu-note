@@ -13,7 +13,7 @@ const OUT = {
     summary: "s", axis_notes: [1, 2, 3, 4], coaching_question: "q", coaching_choices: ["a", "b"],
     lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
   },
-  coach: { reflection: "r", step_options: [1, 2, 3], next_questions: qs, fixed_examples: ex },
+  coach: { reflection: "r", step_options: ["一歩1", "一歩2", "一歩3"], next_questions: qs, fixed_examples: ex },
 };
 
 function setup(out) {
@@ -72,6 +72,26 @@ test("出力の形が違えば OutputError で、数えない", async () => {
     await assert.rejects(handlers[p](body), OutputError, p);
     assert.deepEqual(counted, [], p);
   }
+});
+
+test("3分コーチング：一歩の候補が4つ返っても、空でない先頭の3つに切って通す。足りなければ通さない", async () => {
+  const body = { role: "ceo", question: "q", reply: "r", fixed };
+  const run = async (step_options) => {
+    const { handlers, counted } = setup({ ...OUT.coach, step_options });
+    return { out: await handlers["/api/coach"](body).catch((e) => e), counted };
+  };
+  let r = await run(["a", "b", "c", "d"]);
+  assert.deepEqual(r.out.step_options, ["a", "b", "c"]);
+  assert.deepEqual(r.counted, ["rounds_completed"]);
+  r = await run(["a", " ", "b", "c", "d"]);
+  assert.deepEqual(r.out.step_options, ["a", "b", "c"]);
+  r = await run(["a", "b"]);
+  assert.ok(r.out instanceof OutputError);
+  assert.deepEqual(r.counted, []);
+  r = await run(["a", "", "b", " "]);
+  assert.ok(r.out instanceof OutputError);
+  r = await run("a, b, c");
+  assert.ok(r.out instanceof OutputError);
 });
 
 test("入力が違えば InputError で、AI を呼ばない", async () => {
