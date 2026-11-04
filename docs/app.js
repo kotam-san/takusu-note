@@ -310,7 +310,7 @@ function showProfile() {
   const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
   // 1回目だけ、引っかかりの「種類」を選ぶ（任意）。文章で書くのは、問いに答えたあとの「ひとこと」でよい
   const concernKinds = first
-    ? h("div", { class: "steps", role: "radiogroup", "aria-label": "いま引っかかっていることの種類（任意）" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
+    ? h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "いま引っかかっていることの種類（任意）" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
       h("label", {}, h("input", { type: "radio", name: "p-concern-kind", value, checked: state.store.first_concern_kind === value }), h("span", {}, label))))
     : null;
   const err = h("div");
@@ -542,7 +542,7 @@ function showQuiz(resumed = false) {
       concern.value = answers.concern;
       concern.addEventListener("input", () => { answers.concern = concern.value; capture(); });
       // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
-      const kinds = h("div", { class: "steps", role: "radiogroup", "aria-label": "その難しさにいちばん近いもの（任意）" },
+      const kinds = h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "その難しさにいちばん近いもの（任意）" },
         Object.entries(CONCERN_KINDS).map(([value, label]) =>
           h("label", {}, h("input", { type: "radio", name: "concern-kind", value, checked: answers.kind === value }), h("span", {}, label))));
       kinds.addEventListener("change", (ev) => { answers.kind = ev.target.value; capture(); });
