@@ -290,7 +290,7 @@ function showProfile() {
     const f = PROFILE_FIELDS[key];
     const label = typeof f.label === "string" ? f.label : f.label[role];
     return h("div", { class: "q" }, label,
-      h("div", { class: "scale", role: "radiogroup" },
+      h("div", { class: "scale", role: "radiogroup", "aria-label": label },
         f.options.map((o) => h("label", {},
           h("input", { type: "radio", name: `p-${key}`, value: o.value, checked: p?.[key] === o.value }),
           h("span", {}, o.label)))));
@@ -304,7 +304,7 @@ function showProfile() {
   const otherRow = h("div", { style: "margin-top:8px" }, "業種を書いてください：", industryOther);
   const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
   const concern = first
-    ? h("textarea", { maxlength: "400", placeholder: role === "ceo" ? "例：任せたいのに、結局自分が決めてしまう" : "例：社長が何を目指しているのか分からないまま動いている" })
+    ? h("textarea", { maxlength: "400", placeholder: role === "ceo" ? "例：任せたいのに、結局自分が決めてしまう" : "例：社長が何を目指しているのか分からないまま動いている", "aria-label": "いま、いちばん引っかかっていること（任意）" })
     : null;
   if (concern) concern.value = state.store.first_concern ?? "";
   const err = h("div");
@@ -398,7 +398,7 @@ function askPrevStep(last) {
   // 「やれなかった」を押したら、理由（任意）と一言（任意）を聞いてから進む
   const reasons = h("div", { class: "steps" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
     h("label", {}, h("input", { type: "radio", name: "miss-reason", value }), h("span", {}, label))));
-  const note = h("input", { type: "text", maxlength: String(STEP_NOTE_MAX), placeholder: "ひとこと（任意）" });
+  const note = h("input", { type: "text", maxlength: String(STEP_NOTE_MAX), placeholder: "ひとこと（任意）", "aria-label": "やれなかったことへのひとこと（任意）" });
   const next = h("button", { class: "primary" }, "次へ");
   next.addEventListener("click", () => busy(next, "保存しています…", () =>
     saveResult(false, app.querySelector("input[name=miss-reason]:checked")?.value ?? "", note.value)));
@@ -410,7 +410,7 @@ function askPrevStep(last) {
 
   const done = h("button", { class: "primary" }, "やれた");
   done.addEventListener("click", () => busy(done, "保存しています…", () => saveResult(true)));
-  const notDone = h("button", { onclick: () => { miss.hidden = false; notDone.disabled = true; } }, "やれなかった");
+  const notDone = h("button", { onclick: () => { miss.hidden = false; notDone.setAttribute("aria-pressed", "true"); } }, "やれなかった");
 
   where("前回の一歩", [last.step]);
   screen(
@@ -438,8 +438,8 @@ function showQuiz(resumed = false) {
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
 
-  const scaleFor = (name) =>
-    h("div", { class: "scale", role: "radiogroup" },
+  const scaleFor = (name, label) =>
+    h("div", { class: "scale", role: "radiogroup", "aria-label": label },
       SCALE.map((s) =>
         h("label", {}, h("input", { type: "radio", name, value: s.value }), h("span", {}, s.label))));
 
@@ -448,16 +448,16 @@ function showQuiz(resumed = false) {
       h("div", { class: "axis" }, `推移を見る問い・${AXIS_NAMES[k]}`),
       fixedText[k],
       h("div", { class: "example" }, examples[k]),
-      scaleFor(`f-${k}`)));
+      scaleFor(`f-${k}`, fixedText[k])));
 
   const deepBlocks = deepList.map((d, i) =>
     h("div", { class: "q" },
       h("div", { class: "axis" }, `深掘り・${AXIS_NAMES[d.axis]}`),
       d.because ? h("div", { class: "because" }, `この問いにした理由：${d.because}`) : null,
       d.text,
-      scaleFor(`d-${i}`)));
+      scaleFor(`d-${i}`, d.text)));
 
-  const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう" });
+  const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう", "aria-label": "いま、いちばん引っかかっていること" });
   if (round === 1) concern.value = state.store.first_concern ?? ""; // はじめに書いたものを入れておき、直せるようにする
   // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
   const kinds = h("div", { class: "steps" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
@@ -566,7 +566,7 @@ function showDiagnosis(resumed = false) {
   // 候補から1つ選び、補足は自由に書く（広い問いにいきなり答えるのは難しいため）
   const picks = d.coaching_choices.map((c, i) =>
     h("label", {}, h("input", { type: "radio", name: "pick", value: String(i) }), h("span", {}, c)));
-  const reply = h("textarea", { maxlength: "700", placeholder: "補足があれば自由に（候補になければ、ここに書いてください）" });
+  const reply = h("textarea", { maxlength: "700", placeholder: "補足があれば自由に（候補になければ、ここに書いてください）", "aria-label": "コーチングへの答えの補足" });
   const err = h("div");
   const send = h("button", { class: "primary" }, "答えを送る");
   const capture = () => {
@@ -629,7 +629,7 @@ function showDiagnosis(resumed = false) {
 
 function showSteps(resumed = false) {
   const c = state.current;
-  const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く" });
+  const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く", "aria-label": "今週の一歩を自分で書く" });
   const options = [...c.coaching.step_options.map((s, i) =>
     h("label", {}, h("input", { type: "radio", name: "step", value: String(i) }), h("span", {}, s))),
     h("label", {}, h("input", { type: "radio", name: "step", value: "own" }), own)];
@@ -689,14 +689,14 @@ function showDone(saved) {
     h("section", { class: "card" },
       h("h2", {}, "コーチに送るまとめ"),
       h("p", { class: "notice" }, "送りたい項目を選んで、コピーか共有で送れます。"),
-      summaryBox(state.store.rounds.length - 1, { concern: c.concern, concern_kind: c.concern_kind, reply: c.coaching.reply })),
+      summaryBox(state.store.rounds.length - 1, { concern: c.concern, concern_kind: c.concern_kind, reply: c.coaching.reply }, true)),
     h("section", { class: "card" },
       h("h2", {}, "次の回の深掘りは、こう変わります"),
       h("p", { class: "notice" }, "今回の答えとコーチングを受けて、AIが作りました。"),
       c.coaching.next_questions.map((q) =>
         h("div", { class: "q" }, h("div", { class: "axis" }, AXIS_NAMES[q.axis]), h("div", { class: "because" }, `この問いにした理由：${q.because}`), q.text))),
     growthCard(false), // 過去の回のまとめは、この回のまとめと重なるので出さない
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: showHome }, "記録を見る"), h("button", { onclick: showStart }, "はじめに戻る")),
+    h("div", { class: "row" }, h("button", { onclick: showHome }, "ホームへ"), h("button", { onclick: showStart }, "はじめに戻る")),
   );
 }
 
@@ -709,7 +709,7 @@ function growthCard(withPast = true) {
   const lessons = rounds.filter((r) => r.lesson).reverse();
 
   const reset = () => {
-    if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。よろしいですか？`)) return;
+    if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。消すには「OK」、やめるには「キャンセル」を押してください。`)) return;
     try { localStorage.removeItem(key(state.role)); } catch {}
     clearDraft();
     showStart();
@@ -759,7 +759,7 @@ const SUMMARY_ITEMS = [
   ["reply", "3分コーチングでの答え", false],
 ];
 
-function summaryBox(index, extra = {}) {
+function summaryBox(index, extra = {}, mainAction = false) {
   const rounds = state.store.rounds;
   const r = rounds[index];
   const prev = rounds[index - 1];
@@ -774,7 +774,7 @@ function summaryBox(index, extra = {}) {
   const pick = Object.fromEntries(SUMMARY_ITEMS.map(([k, , on]) => [k, on && has[k]]));
   const text = h("textarea", { readonly: true, rows: "6", "aria-label": "まとめの文" });
   const status = h("p", { class: "notice", role: "status" });
-  const copy = h("button", { class: "primary" }, "コピー");
+  const copy = h("button", { class: mainAction ? "primary" : "" }, "コピー"); // 主ボタンは1画面に1つ（完了画面ではここ、ホームでは「次の回を始める」）
   const share = typeof navigator.share === "function" ? h("button", {}, "共有") : null;
 
   const update = () => {
@@ -899,7 +899,7 @@ function recordBox(c) {
 // 各画面の下の「気になったこと」。AI には送らず、入口が feedback.md に1行ずつ足す
 function feedbackBox() {
   const { name, questions } = here;
-  const text = h("textarea", { maxlength: "1000", rows: "2", placeholder: "この画面で気になったこと（任意）" });
+  const text = h("textarea", { maxlength: "1000", rows: "2", placeholder: "この画面で気になったこと（任意）", "aria-label": "この画面で気になったこと（任意）" });
   const pick = questions.length > 1
     ? h("select", { "aria-label": "どの問いについてか" },
       h("option", { value: "" }, "（画面全体について）"),
