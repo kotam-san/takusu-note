@@ -47,7 +47,12 @@ function where(name, questions = []) {
 }
 
 function screen(...nodes) {
-  app.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false), ...(HAND ? [feedbackBox()] : []), footer());
+  place(nodes, HAND ? feedbackBox() : null);
+}
+
+// 画面を入れ替える。box（手元モードの感想欄）を渡すと、それをそのまま残す
+function place(nodes, box = null) {
+  app.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false), ...(box ? [box] : []), footer());
   window.scrollTo({ top: 0 });
 }
 
@@ -599,7 +604,10 @@ function showQuiz(resumed = false) {
       ];
     }
     where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
-    screen(...nodes);
+    // 手元モードの感想欄は、問いを進めても作り直さない（書きかけを消さないため）
+    const box = HAND ? app.querySelector(':scope > .feedback[data-screen="問い"]') : null;
+    if (box) place(nodes, box);
+    else screen(...nodes);
     app.querySelector("h2[tabindex]")?.focus({ preventScroll: true });
   };
 
@@ -985,7 +993,7 @@ function feedbackBox() {
       status.textContent = `書き残せませんでした：${e.message}`;
     }
   }));
-  return h("section", { class: "card feedback" },
+  return h("section", { class: "card feedback", "data-screen": name },
     h("h2", {}, "気になったこと（手元モード）"),
     pick, text, h("div", { class: "row" }, sendButton), status);
 }
