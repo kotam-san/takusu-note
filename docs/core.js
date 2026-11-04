@@ -77,6 +77,67 @@ export function draftMatches(draft, rounds, deepTexts) {
   return true;
 }
 
+// ---------------------------------------------------------------- 問いの答え（1問ずつ答える画面）
+// 答えそのもの：{ fixed: { A..D: 1〜4 }, deep: [1〜4], concern, kind }。未回答の問いは入れない。
+// 下書き（draft.quiz）は { fixed: { A..D: 点|null }, deep: [点|null], concern, kind } で、この形は変えない。
+// 下書きは利用者も書き換えられるので、読み戻すときは点の範囲と引っかかりの種類を確かめる。
+
+export const emptyAnswers = () => ({ fixed: {}, deep: [], concern: "", kind: "" });
+
+// 問いの順番：推移の4問（AXIS_KEYS の順）→ 深掘り。最後の画面（ひとこと／引っかかり）は含めない
+export const quizOrder = (deepCount) => [
+  ...AXIS_KEYS.map((k) => ({ type: "fixed", k })),
+  ...Array.from({ length: deepCount }, (_, i) => ({ type: "deep", i })),
+];
+
+export const scoreOf = (answers, step) => (step.type === "fixed" ? answers.fixed[step.k] : answers.deep[step.i]) || null;
+
+export function setScore(answers, step, value) {
+  if (step.type === "fixed") answers.fixed[step.k] = value;
+  else answers.deep[step.i] = value;
+}
+
+// 最初の未回答の問い（番号）。すべて答えてあれば、最後の画面の番号（問いの数）を返す
+export function firstOpenStep(answers, deepCount) {
+  const order = quizOrder(deepCount);
+  const i = order.findIndex((step) => !scoreOf(answers, step));
+  return i < 0 ? order.length : i;
+}
+
+const isKind = (v) => typeof v === "string" && Object.hasOwn(CONCERN_KINDS, v);
+
+// 答えを下書きの形にする。kind は、1回目ははじめに選んだ種類、2回目以降は最後の画面で選んだ種類
+export function answersToQuiz(answers, deepCount, kind = answers.kind) {
+  return {
+    fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, answers.fixed[k] || null])),
+    deep: Array.from({ length: deepCount }, (_, i) => answers.deep[i] || null),
+    concern: answers.concern,
+    kind: kind ?? "",
+  };
+}
+
+// 下書きから答えを読み戻す。範囲外の点・知らない種類・文字でない文は捨てる。base に重ねて返す（base は変えない）。
+// 種類は2回目以降だけ読む（1回目の種類は、はじめの画面で記録に入っている）
+export function answersFromQuiz(quiz, deepCount, round, base = emptyAnswers()) {
+  const d = quiz && typeof quiz === "object" ? quiz : {};
+  const answers = { fixed: { ...base.fixed }, deep: [...base.deep], concern: base.concern, kind: base.kind };
+  for (const k of AXIS_KEYS) if (isScore(d.fixed?.[k])) answers.fixed[k] = d.fixed[k];
+  for (let i = 0; i < deepCount; i++) if (isScore(d.deep?.[i])) answers.deep[i] = d.deep[i];
+  if (typeof d.concern === "string") answers.concern = d.concern;
+  if (round !== 1 && isKind(d.kind)) answers.kind = d.kind;
+  return answers;
+}
+
+// 回答例（架空）を答えにする。深掘りの例が足りない問いは「あまりそう思わない」(2) にする
+export function sampleAnswers(sample, deepCount, round, base = emptyAnswers()) {
+  return {
+    fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, Number(sample.fixed[k])])),
+    deep: Array.from({ length: deepCount }, (_, i) => Number(sample.deep[i] ?? 2)),
+    concern: sample.concern,
+    kind: round !== 1 && isKind(sample.concern_kind) ? sample.concern_kind : base.kind,
+  };
+}
+
 // ---------------------------------------------------------------- 日付
 
 // その Mac・その端末の時計での年月日（toISOString は世界標準時なので、日本の朝は前日になる）

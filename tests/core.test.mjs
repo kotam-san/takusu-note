@@ -3,9 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  changeSinceFirst, clipLesson, draftMatches, emptyStore, roundSummary, seriesByAxis, stepDoneRate, stepMiss, validateStore,
+  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, draftMatches, emptyAnswers, emptyStore, firstOpenStep, quizOrder,
+  roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
-import { QUESTIONS } from "../docs/questions.js";
+import { QUESTIONS, SAMPLE } from "../docs/questions.js";
 
 const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores, step: "一歩", step_done: null, ...extra });
 
@@ -179,4 +180,83 @@ test("まとめ：文章を書かず中身だけ選んだときは、中身だ�
   assert.match(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "relation" }), /\n引っかかりの中身：関係・気持ちの行き違い$/);
   assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "unknown" }), /引っかかり/);
   assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: { toString: null } }), /引っかかり/);
+});
+
+// ---------------------------------------------------------------- 問いの答え（1問ずつ答える画面）
+
+test("問いの順番：推移の4問 → 深掘り（最後の画面は含めない）", () => {
+  const order = quizOrder(3);
+  assert.equal(order.length, 7);
+  assert.deepEqual(order.slice(0, 4), ["A", "B", "C", "D"].map((k) => ({ type: "fixed", k })));
+  assert.deepEqual(order.slice(4), [0, 1, 2].map((i) => ({ type: "deep", i })));
+  assert.equal(quizOrder(6).length, 10);
+});
+
+test("最初の未回答の問い：途中の問いから再開し、全部答えてあれば最後の画面", () => {
+  const a = emptyAnswers();
+  assert.equal(firstOpenStep(a, 3), 0);
+  for (const [n, step] of quizOrder(3).entries()) {
+    assert.equal(firstOpenStep(a, 3), n);
+    setScore(a, step, 3);
+    assert.equal(scoreOf(a, step), 3);
+  }
+  assert.equal(firstOpenStep(a, 3), 7); // 最後の画面
+  a.deep[1] = undefined; // 飛ばした問いが先に開く（先へ進んでいても）
+  assert.equal(firstOpenStep(a, 3), 5);
+  assert.equal(firstOpenStep(emptyAnswers(), 6), 0);
+});
+
+test("下書きの形：fixed・deep・concern・kind は変えず、未回答は null", () => {
+  const a = emptyAnswers();
+  setScore(a, { type: "fixed", k: "B" }, 2);
+  setScore(a, { type: "deep", i: 1 }, 4);
+  a.concern = "ひとこと";
+  assert.deepEqual(answersToQuiz(a, 3, "scope"), {
+    fixed: { A: null, B: 2, C: null, D: null }, deep: [null, 4, null], concern: "ひとこと", kind: "scope",
+  });
+  assert.equal(answersToQuiz(a, 3, null).kind, ""); // 1回目で種類を選んでいなければ空
+  a.kind = "info";
+  assert.equal(answersToQuiz(a, 3).kind, "info");
+});
+
+test("下書きを読み戻す：書き出した形はそのまま戻り、壊れた値は捨てる", () => {
+  const a = sampleAnswers(SAMPLE.ceo, 6, 2);
+  const back = answersFromQuiz(answersToQuiz(a, 6), 6, 2);
+  assert.deepEqual(back, a);
+
+  const bad = { fixed: { A: 0, B: 5, C: "3", D: 2.5, X: 3 }, deep: [true, null, "x", 4], concern: 123, kind: "toString" };
+  const got = answersFromQuiz(bad, 4, 2);
+  assert.deepEqual(got.fixed, {}); // 範囲外・文字・小数は捨てる
+  assert.deepEqual([0, 1, 2, 3].map((i) => got.deep[i] ?? null), [null, null, null, 4]); // 範囲内の4だけ残る
+  assert.equal(got.concern, ""); // 文字でない文は捨てる
+  assert.equal(got.kind, ""); // 知らない種類（継承された名前も）は捨てる
+  for (const broken of [null, undefined, "x", 3, [], { fixed: "abc", deep: "xyz" }]) {
+    assert.deepEqual(answersFromQuiz(broken, 3, 2), emptyAnswers(), String(broken));
+  }
+});
+
+test("下書きを読み戻す：1回目は種類を読まず、前の版の文は下書きに無ければ残る", () => {
+  const quiz = { fixed: { A: 1, B: 2, C: 3, D: 4 }, deep: [1, 2, 3], concern: "", kind: "scope" };
+  assert.equal(answersFromQuiz(quiz, 3, 1).kind, ""); // 1回目の種類は、はじめの画面で記録に入っている
+  assert.equal(answersFromQuiz(quiz, 3, 2).kind, "scope");
+  const base = { ...emptyAnswers(), concern: "前の版で書いた文" };
+  assert.equal(answersFromQuiz({ fixed: {}, deep: [] }, 3, 1, base).concern, "前の版で書いた文");
+  assert.equal(answersFromQuiz({ concern: "書き直した" }, 3, 1, base).concern, "書き直した");
+  assert.equal(base.concern, "前の版で書いた文"); // base は変えない
+  assert.deepEqual(base.fixed, {});
+});
+
+test("回答例：全問の答えが入り、最後の画面へ進める。種類は2回目以降だけ入れる", () => {
+  for (const role of ["ceo", "leader"]) {
+    const s = SAMPLE[role];
+    for (const n of [3, 6]) {
+      const a = sampleAnswers(s, n, 2);
+      assert.equal(firstOpenStep(a, n), 4 + n, `${role} ${n}`);
+      assert.equal(a.concern, s.concern);
+      assert.equal(a.kind, s.concern_kind);
+    }
+    assert.equal(sampleAnswers(s, 3, 1, { ...emptyAnswers(), kind: "info" }).kind, "info"); // 1回目は種類を触らない
+  }
+  const short = sampleAnswers({ ...SAMPLE.ceo, deep: [4] }, 3, 2);
+  assert.deepEqual(short.deep, [4, 2, 2]); // 例が足りない問いは2
 });
