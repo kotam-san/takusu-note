@@ -422,6 +422,7 @@ function askPrevStep(last) {
 
   where("前回の一歩", [last.step]);
   screen(
+    h("h1", {}, `${ROLE_NAME[state.role]}・${state.store.rounds.length + 1} 回目`),
     h("section", { class: "card" },
       h("h2", {}, "前回の一歩、やれましたか"),
       h("p", { class: "lesson" }, last.step),
