@@ -66,6 +66,10 @@ textarea{width:100%;min-height:96px;font:inherit;border:1px solid var(--line);bo
 .choices button.right{border-color:var(--ok);color:var(--ok);font-weight:600}
 .choices button.wrong{border-color:var(--warn);color:var(--warn)}
 .steps label{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer}
+.kinds input{position:absolute;opacity:0;pointer-events:none}
+.kinds label:has(input:checked){background:var(--chip);border-color:var(--accent)}
+.kinds label:has(input:checked) span{font-weight:700}
+.kinds label:has(input:focus-visible){outline:2px solid var(--accent)}
 .steps input[type=text]{flex:1;font:inherit;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink)}
 .axes{background:var(--surface-1);border-radius:10px;padding:6px 12px}
 .axrow{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr) 5.5em;align-items:center;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line)}
