@@ -427,6 +427,8 @@ function askPrevStep(last) {
   );
 }
 
+// 問いは1画面に1問ずつ。推移を見る4問 → 深掘り → 最後の画面（ひとこと／引っかかり）。
+// 答えは answers に持ち、画面を替えても残す。下書き（draft.quiz）の形は変えない。
 function showQuiz(resumed = false) {
   const role = state.role;
   const round = state.store.rounds.length + 1;
@@ -440,78 +442,69 @@ function showQuiz(resumed = false) {
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
 
-  const scaleFor = (name, label) =>
-    h("div", { class: "scale", role: "radiogroup", "aria-label": label },
-      SCALE.map((s) =>
-        h("label", {}, h("input", { type: "radio", name, value: s.value }), h("span", {}, s.label))));
+  // 1問ずつの順番。最後に「ひとこと／引っかかり」の画面が付く
+  const steps = [
+    ...AXIS_KEYS.map((k) => ({ type: "fixed", k, name: `f-${k}`, text: fixedText[k] })),
+    ...deepList.map((d, i) => ({ type: "deep", d, name: `d-${i}`, text: d.text })),
+  ];
+  const total = steps.length;
 
-  const fixedBlocks = AXIS_KEYS.map((k) =>
-    h("div", { class: "q" },
-      h("div", { class: "axis" }, `推移を見る問い・${AXIS_NAMES[k]}`),
-      fixedText[k],
-      h("div", { class: "example" }, examples[k]),
-      scaleFor(`f-${k}`, fixedText[k])));
+  const answers = { fixed: {}, deep: [], concern: "", kind: "" };
+  const score = (step) => (step.type === "fixed" ? answers.fixed[step.k] : answers.deep[Number(step.name.slice(2))]) || null;
+  const setScore = (step, v) => { if (step.type === "fixed") answers.fixed[step.k] = v; else answers.deep[Number(step.name.slice(2))] = v; };
+  const valid = (v) => SCALE.some((s) => s.value === Number(v));
 
-  const deepBlocks = deepList.map((d, i) =>
-    h("div", { class: "q" },
-      h("div", { class: "axis" }, `深掘り・${AXIS_NAMES[d.axis]}`),
-      d.because ? h("div", { class: "because" }, `この問いにした理由：${d.because}`) : null,
-      d.text,
-      scaleFor(`d-${i}`, d.text)));
-
-  // 1回目は、引っかかりの種類をはじめに選んであるので、ここは文章だけ（ひとこと・任意）
+  // 1回目は、引っかかりの種類をはじめに選んであるので、最後の画面は文章だけ（ひとこと・任意）
   const concernLabel = round === 1 ? "ひとこと（任意）" : "いま、いちばん引っかかっていること";
-  const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう", "aria-label": concernLabel });
-  if (round === 1) concern.value = state.store.first_concern ?? ""; // 前の版で書いたものがあれば入れておき、直せるようにする
-  // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
-  const kinds = h("div", { class: "steps" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
-    h("label", {}, h("input", { type: "radio", name: "concern-kind", value }), h("span", {}, label))));
-  const err = h("div");
-  const submit = h("button", { class: "primary" }, "AIの見立てを見る");
-  const pick = (name) => Number(app.querySelector(`input[name=${name}]:checked`)?.value);
-  const kindPicked = () => (round === 1 ? state.store.first_concern_kind : app.querySelector("input[name=concern-kind]:checked")?.value) ?? "";
+  if (round === 1) answers.concern = state.store.first_concern ?? ""; // 前の版で書いたものがあれば入れておき、直せるようにする
+  const kindPicked = () => (round === 1 ? state.store.first_concern_kind : answers.kind) ?? "";
 
   // 入力のたびに下書きへ（ページを離れても戻せるように）
   const capture = () => {
     draft.quiz = {
-      fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, pick(`f-${k}`) || null])),
-      deep: deepList.map((_, i) => pick(`d-${i}`) || null),
-      concern: concern.value,
+      fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, answers.fixed[k] || null])),
+      deep: deepList.map((_, i) => answers.deep[i] || null),
+      concern: answers.concern,
       kind: kindPicked(),
     };
     writeDraft();
   };
   const restore = () => {
     const d = draft.quiz ?? {};
-    const check = (name, v) => { if (v) { const el = app.querySelector(`input[name=${name}][value="${v}"]`); if (el) el.checked = true; } };
-    AXIS_KEYS.forEach((k) => check(`f-${k}`, d.fixed?.[k]));
-    deepList.forEach((_, i) => check(`d-${i}`, d.deep?.[i]));
-    if (typeof d.concern === "string") concern.value = d.concern;
-    check("concern-kind", d.kind);
+    AXIS_KEYS.forEach((k) => { if (valid(d.fixed?.[k])) answers.fixed[k] = Number(d.fixed[k]); });
+    deepList.forEach((_, i) => { if (valid(d.deep?.[i])) answers.deep[i] = Number(d.deep[i]); });
+    if (typeof d.concern === "string") answers.concern = d.concern;
+    if (round !== 1 && d.kind in CONCERN_KINDS) answers.kind = d.kind;
+  };
+
+  // 最初の未回答の問い。全部答えてあれば最後の画面
+  const firstOpen = () => {
+    const i = steps.findIndex((s) => !score(s));
+    return i < 0 ? total : i;
   };
 
   const fillSample = () => {
     const s = SAMPLE[role];
-    AXIS_KEYS.forEach((k) => (app.querySelector(`input[name=f-${k}][value="${s.fixed[k]}"]`).checked = true));
-    deepList.forEach((_, i) => (app.querySelector(`input[name=d-${i}][value="${s.deep[i] ?? 2}"]`).checked = true));
-    concern.value = s.concern;
-    const sampleKind = app.querySelector(`input[name=concern-kind][value="${s.concern_kind}"]`);
-    if (sampleKind) sampleKind.checked = true;
-    err.replaceChildren(h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
+    AXIS_KEYS.forEach((k) => (answers.fixed[k] = Number(s.fixed[k])));
+    deepList.forEach((_, i) => (answers.deep[i] = Number(s.deep[i] ?? 2)));
+    answers.concern = s.concern;
+    if (round !== 1 && s.concern_kind in CONCERN_KINDS) answers.kind = s.concern_kind;
     capture();
+    render(total, h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
   };
+  const sampleButton = () => h("button", { onclick: fillSample }, "回答例で試す");
 
-  submit.addEventListener("click", () => busy(submit, "AIが読んでいます…（20秒ほど）", async () => {
+  const send = (submit, err) => busy(submit, "AIが読んでいます…（20秒ほど）", async () => {
     err.replaceChildren();
-    const fixed = Object.fromEntries(AXIS_KEYS.map((k) => [k, { text: fixedText[k], score: pick(`f-${k}`) }]));
-    const deep = deepList.map((d, i) => ({ axis: d.axis, text: d.text, score: pick(`d-${i}`) }));
+    const fixed = Object.fromEntries(AXIS_KEYS.map((k) => [k, { text: fixedText[k], score: answers.fixed[k] || NaN }]));
+    const deep = deepList.map((d, i) => ({ axis: d.axis, text: d.text, score: answers.deep[i] || NaN }));
     if ([...Object.values(fixed), ...deep].some((x) => !x.score)) {
       err.append(errorBox("すべての問いに答えてください。"));
       return;
     }
     const last = state.store.rounds.at(-1);
     const body = {
-      role, round, fixed, deep, concern: concern.value.trim(), profile: myProfile(),
+      role, round, fixed, deep, concern: answers.concern.trim(), profile: myProfile(),
       concern_kind: kindPicked(),
       history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done, step_reason }) =>
         ({ round, date, scores, step: step || "", step_done: step_done ?? null, ...(step_done === false && step_reason ? { step_reason } : {}) })),
@@ -526,27 +519,93 @@ function showQuiz(resumed = false) {
     } catch (e) {
       err.append(errorBox(e.message));
     }
-  }));
+  });
 
-  where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
-  screen(
-    resumed ? resumedNote() : null,
-    h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
-    adaptive ? h("p", { class: "lead" }, round === 1
-      ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
-      : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
-    h("section", { class: "card", onchange: capture }, h("h2", {}, "毎回同じ4つの問い"), h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。"), fixedBlocks),
-    h("section", { class: "card", onchange: capture }, h("h2", {}, adaptive ? "今回の深掘り" : "深掘りの問い"), deepBlocks),
-    h("section", { class: "card", onchange: capture, oninput: capture },
-      h("h2", {}, concernLabel),
-      h("p", { class: "notice" }, round === 1 ? "ここまでの問いで言い足したいことがあれば。実名や取引先の名前は書かないでください。" : "実名や取引先の名前は書かないでください。"),
-      concern,
-      round === 1 ? null : h("div", { class: "q" }, "その難しさは、どれにいちばん近いですか（任意）", kinds)),
-    h("div", { class: "row" }, submit, h("button", { onclick: fillSample }, "回答例で試す")),
-    err,
-  );
+  // i 番目の問い（total なら最後の画面）を出す
+  const render = (i, notice = null, note = null) => {
+    const head = (title) => [
+      note,
+      h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
+      h("div", { class: "progress" },
+        h("span", {}, title),
+        h("progress", { max: String(total + 1), value: String(i + 1), "aria-label": "進み具合" })),
+    ];
+    const heading = (text) => h("h2", { tabindex: "-1" }, text);
+    let nodes;
+    if (i >= total) {
+      const concern = h("textarea", { id: "concern", maxlength: "400", placeholder: "例：任せたいのに、結局自分が決めてしまう", "aria-label": concernLabel });
+      concern.value = answers.concern;
+      concern.addEventListener("input", () => { answers.concern = concern.value; capture(); });
+      // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
+      const kinds = h("div", { class: "steps", role: "radiogroup", "aria-label": "その難しさにいちばん近いもの（任意）" },
+        Object.entries(CONCERN_KINDS).map(([value, label]) =>
+          h("label", {}, h("input", { type: "radio", name: "concern-kind", value, checked: answers.kind === value }), h("span", {}, label))));
+      kinds.addEventListener("change", (ev) => { answers.kind = ev.target.value; capture(); });
+      const err = h("div");
+      const submit = h("button", { class: "primary" }, "AIの見立てを見る");
+      submit.addEventListener("click", () => send(submit, err));
+      nodes = [
+        ...head(`最後の画面（${total}問に答えました）`),
+        h("section", { class: "card" },
+          heading(concernLabel),
+          h("p", { class: "notice" }, round === 1 ? "ここまでの問いで言い足したいことがあれば。実名や取引先の名前は書かないでください。" : "実名や取引先の名前は書かないでください。"),
+          concern,
+          round === 1 ? null : h("div", { class: "q" }, "その難しさは、どれにいちばん近いですか（任意）", kinds)),
+        h("div", { class: "row" }, h("button", { onclick: () => render(total - 1) }, "戻る"), submit, sampleButton()),
+        notice,
+        err,
+      ];
+    } else {
+      const step = steps[i];
+      const err = h("div");
+      const go = (to) => { capture(); render(to); };
+      const advance = () => {
+        if (!score(step)) return err.replaceChildren(errorBox("ひとつ選んでください。"));
+        go(i + 1);
+      };
+      const group = h("div", { class: "scale", role: "radiogroup", "aria-label": step.text },
+        SCALE.map((s) =>
+          h("label", {}, h("input", { type: "radio", name: step.name, value: s.value, checked: score(step) === s.value }), h("span", {}, s.label))));
+      // 選んだ点は、矢印キーで選択が変わっただけでも残す（進まない）
+      group.addEventListener("change", (ev) => { setScore(step, Number(ev.target.value)); err.replaceChildren(); capture(); });
+      // 進むのは、マウス・タッチのクリック（detail > 0）のときだけ。矢印キーやスペースの選択では進めない
+      group.addEventListener("click", (ev) => {
+        if (ev.detail === 0 || !group.isConnected) return;
+        const input = ev.target.closest("label")?.querySelector("input") ?? (ev.target.matches("input") ? ev.target : null);
+        if (!input) return;
+        setScore(step, Number(input.value));
+        go(i + 1);
+      });
+      const fixed = step.type === "fixed";
+      nodes = [
+        ...head(`${i + 1} / ${total}`),
+        adaptive && !fixed ? h("p", { class: "lead" }, round === 1
+          ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
+          : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
+        fixed ? h("p", { class: "notice" }, "この4問の点数で、回ごとの変化を見ます。") : null,
+        h("section", { class: "card" },
+          h("div", { class: "q" },
+            h("div", { class: "axis" }, fixed ? `推移を見る問い・${AXIS_NAMES[step.k]}` : `深掘り・${AXIS_NAMES[step.d.axis]}`),
+            !fixed && step.d.because ? h("div", { class: "because" }, `この問いにした理由：${step.d.because}`) : null,
+            heading(step.text),
+            fixed ? h("div", { class: "example" }, examples[step.k]) : null,
+            group)),
+        h("div", { class: "row" },
+          i > 0 ? h("button", { onclick: () => go(i - 1) }, "戻る") : null,
+          h("button", { class: "primary", onclick: advance }, "次へ"),
+          i === 0 ? sampleButton() : null),
+        notice,
+        err,
+      ];
+    }
+    where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
+    screen(...nodes);
+    app.querySelector("h2[tabindex]")?.focus({ preventScroll: true });
+  };
+
   if (resumed) restore();
   else capture();
+  render(firstOpen(), null, resumed ? resumedNote() : null);
 }
 
 // ---------------------------------------------------------------- 4. 見立てと学び、3分コーチング
