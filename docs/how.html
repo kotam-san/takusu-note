@@ -33,7 +33,7 @@ a{color:var(--accent)}
 <main>
 <p style="margin:0 0 8px"><a href="./">← 託すノートに戻る</a></p>
 <h1>1回の流れと、次の問いが変わる仕組み</h1>
-<p>答えは回ごとに記録に積み上がり、AIは4つの手がかりをもとに、次の回の深掘りの問いを作り直します。問いは1画面に1問ずつ出ます。1回目は7問（推移4＋深掘り3）、2回目からは10問（推移4＋深掘り6）です。</p>
+<p>答えは回ごとに記録に積み上がり、AIは4つの手がかりをもとに、次の回の深掘りの問いを作り直します。問いは1画面に1問ずつ出ます。最初は5問（推移4＋深掘り1）で、深掘りが回ごとに1問ずつ増え、6回目から10問（推移4＋深掘り6）になります。</p>
 
 <svg viewBox="0 0 400 940" role="img" aria-labelledby="t d">
   <title id="t">1回の流れと、記録の積み上がり</title>
@@ -57,7 +57,7 @@ a{color:var(--accent)}
   <text x="70" y="70" font-size="13" class="head">推移を見る4問</text>
   <text x="70" y="92" font-size="12" class="sub">毎回同じ・点数に使う</text>
   <rect class="key" x="198" y="48" width="130" height="58" rx="8"/>
-  <text x="208" y="70" font-size="13" class="head">深掘りの6問</text>
+  <text x="208" y="70" font-size="13" class="head">深掘り（1→6問）</text>
   <text x="208" y="92" font-size="12" class="sub">毎回変わる</text>
   <text x="60" y="128" font-size="12" class="sub">＋ ひとこと・引っかかり（自由記述）</text>
   <text x="60" y="148" font-size="12" class="sub">＋ 前回の一歩は、やれたか</text>
@@ -84,7 +84,7 @@ a{color:var(--accent)}
 
   <!-- 4 次の問いをつくる -->
   <rect class="key" x="44" y="462" width="300" height="236" rx="12"/>
-  <text x="60" y="488" class="head" font-size="15"><tspan class="num">4</tspan>　次の回の深掘り6問をつくる</text>
+  <text x="60" y="488" class="head" font-size="15"><tspan class="num">4</tspan>　次の回の深掘りをつくる</text>
   <text x="60" y="512" font-size="12" class="sub">AIが手がかりにする4つのこと</text>
   <rect class="chip" x="60" y="524" width="268" height="30" rx="6"/>
   <text x="72" y="544" font-size="13">① 点数の低い軸に寄せる</text>
@@ -113,7 +113,7 @@ a{color:var(--accent)}
   <text x="60" y="806" font-size="12" class="sub">→ 推移のグラフ（<tspan class="num">1</tspan> の推移4問から）</text>
   <text x="60" y="836" font-size="13">これまでの一歩と、やれた率</text>
   <text x="60" y="856" font-size="12" class="sub">→ 次の回の最初に確かめる（<tspan class="num">3</tspan> から）</text>
-  <text x="60" y="886" font-size="13">次の回の深掘り6問</text>
+  <text x="60" y="886" font-size="13">次の回の深掘りの候補</text>
   <text x="60" y="906" font-size="12" class="sub">→ 次の回の <tspan class="num">1</tspan> で出る（<tspan class="num">4</tspan> から）</text>
 
 </svg>

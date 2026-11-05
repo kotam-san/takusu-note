@@ -3,10 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, draftMatches, emptyAnswers, emptyStore, firstOpenStep, quizOrder,
+  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, quizOrder,
   roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
-import { QUESTIONS, SAMPLE } from "../docs/questions.js";
+import { DEEP_BY_ROUND, QUESTIONS, SAMPLE } from "../docs/questions.js";
 
 const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores, step: "一歩", step_done: null, ...extra });
 
@@ -259,4 +259,38 @@ test("回答例：全問の答えが入り、最後の画面へ進める。種�
   }
   const short = sampleAnswers({ ...SAMPLE.ceo, deep: [4] }, 3, 2);
   assert.deepEqual(short.deep, [4, 2, 2]); // 例が足りない問いは2
+});
+
+// ---------------------------------------------------------------- 回ごとの深掘りの数
+
+test("深掘りの数：回を重ねるごとに1問ずつ増え、全体は5問から10問になる（推移の4問は毎回）", () => {
+  const list = ["A", "A", "B", "B", "C", "D"].map((axis, i) => ({ axis, text: `問い${i}` }));
+  const counts = [1, 2, 3, 4, 5, 6, 7, 20].map((r) => deepForRound(list, r).length);
+  assert.deepEqual(counts, [1, 2, 3, 4, 5, 6, 6, 6]);
+  assert.deepEqual(DEEP_BY_ROUND, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(counts.map((n) => 4 + n).slice(0, 6), [5, 6, 7, 8, 9, 10]);
+});
+
+test("深掘りの選び方：軸が偏らないよう、まだ出ていない軸を先に選び、list の並びのまま返す", () => {
+  const list = ["A", "A", "B", "B", "C", "D"].map((axis, i) => ({ axis, text: `問い${i}` }));
+  const texts = (r) => deepForRound(list, r).map((q) => q.text);
+  assert.deepEqual(texts(1), ["問い0"]);
+  assert.deepEqual(texts(2), ["問い0", "問い2"]); // A・B
+  assert.deepEqual(texts(3), ["問い0", "問い2", "問い4"]); // A・B・C
+  assert.deepEqual(texts(4), ["問い0", "問い2", "問い4", "問い5"]); // A〜D
+  assert.deepEqual(texts(5), ["問い0", "問い1", "問い2", "問い4", "問い5"]); // 残りの A を足す
+  assert.deepEqual(texts(6), list.map((q) => q.text));
+  // 同じ軸ばかりでも、必要な数まで残りから足す
+  const same = Array.from({ length: 6 }, (_, i) => ({ axis: "A", text: `同${i}` }));
+  assert.deepEqual(deepForRound(same, 3).map((q) => q.text), ["同0", "同1", "同2"]);
+  // 1回目に使う AI の3問（A・B・C）や、問いが足りないとき
+  const three = ["A", "B", "C"].map((axis, i) => ({ axis, text: `初${i}` }));
+  assert.deepEqual(deepForRound(three, 1).map((q) => q.text), ["初0"]);
+  assert.equal(deepForRound(three, 5).length, 3);
+  assert.deepEqual(deepForRound([], 3), []);
+});
+
+test("深掘りの数：回の値が壊れていても、1回目として扱う", () => {
+  const list = ["A", "B", "C"].map((axis, i) => ({ axis, text: `問い${i}` }));
+  for (const r of [0, -3, NaN, undefined, "x", 1.9]) assert.equal(deepForRound(list, r).length, 1, String(r));
 });

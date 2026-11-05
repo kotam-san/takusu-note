@@ -2,7 +2,7 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, draftMatches, emptyAnswers, emptyStore, firstOpenStep, localDate, quizOrder,
+  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, localDate, quizOrder,
   roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
@@ -137,7 +137,8 @@ function clearDraft(role = state.role) {
 }
 
 // 今の回の深掘りの問い（回答画面と、下書きが合うかの判定で同じものを使う）
-const quizDeep = () => state.store.next_deep ?? QUESTIONS[state.role].deep;
+// 今の回に出す深掘りの問い。回を重ねるごとに増える（deepForRound）
+const quizDeep = () => deepForRound(state.store.next_deep ?? QUESTIONS[state.role].deep, state.store.rounds.length + 1);
 
 // 下書きのいちばん先まで進んだ画面を開き直す。開けなければ捨ててホームへ
 function resumeDraft(saved) {
