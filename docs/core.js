@@ -1,7 +1,7 @@
 // 画面に依存しない計算（テスト対象）：記録の検証、推移、コーチに送るまとめ。
 
 import { validateProfile } from "./profile.js";
-import { AXIS_NAMES, CONCERN_KINDS, DEEP_BY_ROUND, MEMO_MAX, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
+import { AXIS_NAMES, CHEERS, CHEER_GAP_DAYS, CONCERN_KINDS, DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
 
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
@@ -116,8 +116,10 @@ export function draftMatches(draft, rounds, deepTexts) {
 // N 回目に出す深掘りの問い。list（AI が作った6問など）から DEEP_BY_ROUND[N-1] 問を選ぶ。
 // 軸（A〜D）が偏らないよう、まだ出ていない軸の問いを、list の並びの順に先に選び、足りなければ残りを順に足す。
 // 選んだ問いは、list の並びのまま返す
+export const deepCountForRound = (round) => DEEP_BY_ROUND[Math.min(Math.max(Math.trunc(round) || 1, 1), DEEP_BY_ROUND.length) - 1];
+
 export function deepForRound(list, round) {
-  const n = DEEP_BY_ROUND[Math.min(Math.max(Math.trunc(round) || 1, 1), DEEP_BY_ROUND.length) - 1];
+  const n = deepCountForRound(round);
   const seen = new Set();
   const first = [];
   const rest = [];
@@ -128,6 +130,63 @@ export function deepForRound(list, round) {
   const chosen = new Set([...first, ...rest].slice(0, n));
   return list.filter((_, i) => chosen.has(i));
 }
+
+// ---------------------------------------------------------------- 節目のはげまし
+// 数と事実（回数・点数・一歩・日付）から、出す言葉を決める。言葉そのものは questions.js の CHEERS。AI は使わない
+
+const fillCheer = (text, vars = {}) => text.replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? String(vars[k]) : m));
+
+// 一歩をやれた回が、最後から何回続いているか
+export function trailingDone(rounds) {
+  let n = 0;
+  for (let i = rounds.length - 1; i >= 0 && rounds[i].step_done === true; i--) n++;
+  return n;
+}
+
+// 年月日（YYYY-MM-DD）の日数の差。読めないときは 0
+export function gapDays(from, to) {
+  const t = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s ?? "") ? Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) : NaN);
+  const d = Math.round((t(to) - t(from)) / 86400000);
+  return Number.isFinite(d) ? d : 0;
+}
+
+// 1回の問いの最初の画面に出す一言。rounds は、これから始める回より前の記録（前回の一歩の結果は反映済み）
+export function roundStartNotes(rounds) {
+  const round = rounds.length + 1;
+  const last = rounds.at(-1);
+  const notes = [];
+  if (last?.step_done === true) notes.push(trailingDone(rounds) === 3 ? CHEERS.streak3 : fillCheer(CHEERS.stepDone, { rate: stepDoneRate(rounds) }));
+  else if (last?.step_done === false) notes.push(CHEERS.stepMissed);
+  if (round === 2) notes.push(CHEERS.second);
+  if (round === MEMO_FROM_ROUND) notes.push(CHEERS.memoOpen);
+  if (round === DEEP_BY_ROUND.length) notes.push(fillCheer(CHEERS.full, { round, total: 4 + deepCountForRound(round) }));
+  return notes;
+}
+
+// 見立ての先頭に出す一言。current は今の回（点数は current.fixed）、rounds はこの回を足す前の記録
+export function diagnosisNotes(rounds, current) {
+  if (current.round === 1) return [CHEERS.firstDiagnosis];
+  const prev = rounds.at(-1)?.scores;
+  if (!prev) return [];
+  let best = null;
+  for (const k of AXIS_KEYS) {
+    const to = current.fixed?.[k]?.score;
+    const up = Number.isInteger(to) ? to - prev[k] : 0;
+    if (up > 0 && (!best || up > best.up)) best = { k, up, from: prev[k], to };
+  }
+  return best ? [fillCheer(CHEERS.axisUp, { axis: AXIS_NAMES[best.k], from: best.from, to: best.to })] : [];
+}
+
+// ホームに出す一言。間が空いて戻ってきたときは、その言葉を。そうでなければ、次の回に問いが増えるとき、その数を伝える
+export function homeNotes(rounds, today = localDate()) {
+  const last = rounds.at(-1);
+  if (!last) return [];
+  if (gapDays(last.date, today) >= CHEER_GAP_DAYS) return [CHEERS.gapReturn];
+  const next = 4 + deepCountForRound(rounds.length + 1);
+  return next > 4 + deepCountForRound(rounds.length) ? [fillCheer(CHEERS.nextCount, { n: next })] : [];
+}
+
+export const stepDecidedNote = () => CHEERS.stepDecided;
 
 // ---------------------------------------------------------------- 問いの答え（1問ずつ答える画面）
 // 答えそのもの：{ fixed: { A..D: 1〜4 }, deep: [1〜4], concern, kind }。未回答の問いは入れない。
