@@ -1,7 +1,7 @@
 // 画面に依存しない計算（テスト対象）：記録の検証、推移、コーチに送るまとめ。
 
 import { validateProfile } from "./profile.js";
-import { AXIS_NAMES, CONCERN_KINDS, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
+import { AXIS_NAMES, CONCERN_KINDS, DEEP_BY_ROUND, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
 
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
@@ -75,6 +75,24 @@ export function draftMatches(draft, rounds, deepTexts) {
   if (draft.stage !== "quiz" && !(draft.current?.diagnosis && typeof draft.current.diagnosis === "object")) return false;
   if (draft.stage === "steps" && !Array.isArray(draft.current?.coaching?.step_options)) return false;
   return true;
+}
+
+// ---------------------------------------------------------------- 回ごとの深掘りの数
+
+// N 回目に出す深掘りの問い。list（AI が作った6問など）から DEEP_BY_ROUND[N-1] 問を選ぶ。
+// 軸（A〜D）が偏らないよう、まだ出ていない軸の問いを、list の並びの順に先に選び、足りなければ残りを順に足す。
+// 選んだ問いは、list の並びのまま返す
+export function deepForRound(list, round) {
+  const n = DEEP_BY_ROUND[Math.min(Math.max(Math.trunc(round) || 1, 1), DEEP_BY_ROUND.length) - 1];
+  const seen = new Set();
+  const first = [];
+  const rest = [];
+  list.forEach((q, i) => {
+    if (seen.has(q.axis)) rest.push(i);
+    else { seen.add(q.axis); first.push(i); }
+  });
+  const chosen = new Set([...first, ...rest].slice(0, n));
+  return list.filter((_, i) => chosen.has(i));
 }
 
 // ---------------------------------------------------------------- 問いの答え（1問ずつ答える画面）
