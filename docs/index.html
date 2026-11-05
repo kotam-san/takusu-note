@@ -23,6 +23,9 @@ h3{font-size:14px;color:var(--sub);margin:20px 0 6px;font-weight:600}
 p{margin:0 0 12px}
 .lead{color:var(--sub)}
 .more{margin-top:24px}
+.memo-box{margin-top:14px}
+.memo-box summary{color:var(--link);cursor:pointer;padding:6px 0}
+.memo-box textarea{margin-top:6px;min-height:80px}
 a{color:var(--link)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}
 .flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:16px 0;padding:0;list-style:none}
@@ -107,8 +110,8 @@ footer{color:var(--muted);font-size:12px;margin-top:40px}
 <!-- JS は版つきの URL で読む（更新のとき、新旧の JS が混ざらないように）。版は node scripts/stamp-version.mjs で更新する。
      import map に対応しない古いブラウザでは、版なしの読み込みで今まで通り動く -->
 <script type="importmap">
-{"imports":{"./core.js":"./core.js?v=e4ef4d68","./profile.js":"./profile.js?v=e4ef4d68","./questions.js":"./questions.js?v=e4ef4d68"}}
+{"imports":{"./core.js":"./core.js?v=0608bdae","./profile.js":"./profile.js?v=0608bdae","./questions.js":"./questions.js?v=0608bdae"}}
 </script>
-<script type="module" src="./app.js?v=e4ef4d68"></script>
+<script type="module" src="./app.js?v=0608bdae"></script>
 </body>
 </html>
