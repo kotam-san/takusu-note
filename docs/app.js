@@ -163,6 +163,26 @@ function resumedNote() {
     h("button", { onclick: () => { clearDraft(); state.current = null; showHome(); } }, "最初からやり直す"));
 }
 
+// 途中の回をやめて、ホーム（はじめての回ならはじめの画面）へ戻る。入力と AI の返事は下書きに残り、
+// 次に開くと続きから始められる。何も答えていないときは残さない
+function leaveRound(untouched = false) {
+  if (untouched) clearDraft();
+  state.current = null;
+  if (state.store.rounds.length) showHome();
+  else showStart();
+}
+
+function leaveButton(isUntouched = () => false) {
+  return h("p", { class: "leave" },
+    h("button", { class: "quiet", onclick: () => leaveRound(isUntouched()) }, state.store.rounds.length ? "ホームへ戻る" : "はじめに戻る"));
+}
+
+// 続きがある途中の回（ホームのボタンの文と、開く先の判定で同じものを使う）
+const resumableDraft = () => {
+  const saved = readDraft(state.role);
+  return draftMatches(saved, state.store.rounds, quizDeep().map((d) => d.text)) ? saved : null;
+};
+
 // ---------------------------------------------------------------- AI を呼ぶ
 
 function api(path, body) {
@@ -278,7 +298,7 @@ function showHome() {
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
     growthCard(),
     h("div", { class: "row" },
-      h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を始める`),
+      h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を${resumableDraft() ? "続ける" : "始める"}`),
       h("button", { onclick: showStart }, "立場を選び直す"),
       h("button", { onclick: showProfile }, "プロフィールを直す"),
     ),
@@ -376,6 +396,8 @@ async function makeFirstRound(role, profile, concern, kind) {
 // ---------------------------------------------------------------- 3. 問い
 
 function startRound() {
+  const saved = resumableDraft();
+  if (saved && resumeDraft(saved)) return; // やめて戻ってきた回は、続きから開く
   const last = state.store.rounds.at(-1);
   if (last && last.step && last.step_done == null) return askPrevStep(last);
   showQuiz();
@@ -431,6 +453,7 @@ function askPrevStep(last) {
       miss,
       err,
     ),
+    leaveButton(),
   );
 }
 
@@ -504,6 +527,8 @@ function showQuiz(resumed = false) {
     }
   });
 
+  const untouched = () => steps.every((step) => !score(step)); // 1問も答えていない（戻っても残すものがない）
+
   // i 番目の問い（total なら最後の画面）を出す
   const render = (i, notice = null, note = null) => {
     const head = (title) => [
@@ -537,6 +562,7 @@ function showQuiz(resumed = false) {
         h("div", { class: "row" }, h("button", { onclick: () => render(total - 1) }, "戻る"), submit, sampleButton()),
         notice,
         err,
+        leaveButton(untouched),
       ];
     } else {
       const step = steps[i];
@@ -579,6 +605,7 @@ function showQuiz(resumed = false) {
           i === 0 ? sampleButton() : null),
         notice,
         err,
+        leaveButton(untouched),
       ];
     }
     where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
@@ -670,6 +697,7 @@ function showDiagnosis(resumed = false) {
       reply,
       h("div", { class: "row" }, send, fillSample),
       err),
+    leaveButton(),
   );
   if (resumed) {
     if (draft.pick != null) { const el = app.querySelector(`input[name=pick][value="${draft.pick}"]`); if (el) el.checked = true; }
@@ -722,6 +750,7 @@ function showSteps(resumed = false) {
     h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.coaching.reflection)),
     h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"), options,
       h("div", { class: "row" }, decide), err),
+    leaveButton(),
   );
   if (resumed) {
     if (draft.step != null) { const el = app.querySelector(`input[name=step][value="${draft.step}"]`); if (el) el.checked = true; }
