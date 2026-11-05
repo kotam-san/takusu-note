@@ -426,7 +426,7 @@ function askPrevStep(last) {
   };
 
   // 「やれなかった」を押したら、理由（任意）と一言（任意）を聞いてから進む
-  const reasons = h("div", { class: "steps" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
+  const reasons = h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "やれなかった理由（任意）" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
     h("label", {}, h("input", { type: "radio", name: "miss-reason", value }), h("span", {}, label))));
   const note = h("input", { type: "text", maxlength: String(STEP_NOTE_MAX), placeholder: "ひとこと（任意）", "aria-label": "やれなかったことへのひとこと（任意）" });
   const next = h("button", { class: "primary" }, "次へ");
@@ -693,7 +693,7 @@ function showDiagnosis(resumed = false) {
     h("section", { class: "card", onchange: capture, oninput: capture },
       h("h2", {}, "3分コーチング"),
       h("p", { class: "lesson" }, d.coaching_question),
-      h("div", { class: "steps" }, picks),
+      h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "コーチングの問いへの答えの候補" }, picks),
       reply,
       h("div", { class: "row" }, send, fillSample),
       err),
@@ -708,9 +708,14 @@ function showDiagnosis(resumed = false) {
 function showSteps(resumed = false) {
   const c = state.current;
   const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く", "aria-label": "今週の一歩を自分で書く" });
+  const ownRadio = h("input", { type: "radio", name: "step", value: "own" });
+  // 選択肢のラジオは見えないので、「自分で書く」の欄を押す・文字を入れたら、その選択肢を選んだことにする
+  // （Tab で通り過ぎただけでは選ばない）
+  own.addEventListener("click", () => { ownRadio.checked = true; capture(); });
+  own.addEventListener("input", () => { ownRadio.checked = true; });
   const options = [...c.coaching.step_options.map((s, i) =>
     h("label", {}, h("input", { type: "radio", name: "step", value: String(i) }), h("span", {}, s))),
-    h("label", {}, h("input", { type: "radio", name: "step", value: "own" }), own)];
+    h("label", {}, ownRadio, own)];
   const err = h("div");
 
   const decide = h("button", { class: "primary" }, "これに決める");
@@ -748,7 +753,8 @@ function showSteps(resumed = false) {
     resumed ? resumedNote() : null,
     h("h1", {}, "今週の一歩を決める"),
     h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.coaching.reflection)),
-    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"), options,
+    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"),
+      h("div", { class: "kinds", role: "radiogroup", "aria-label": "今週の一歩" }, options),
       h("div", { class: "row" }, decide), err),
     leaveButton(),
   );
