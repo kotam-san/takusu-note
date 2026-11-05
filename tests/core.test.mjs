@@ -3,10 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, makeBackup, memoEntries, memoOf,
-  quizOrder, readBackup, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
+  BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
+  quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, trailingDone, validateStore,
 } from "../docs/core.js";
-import { DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
+import { CHEERS, CHEER_GAP_DAYS, DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
 
 const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores, step: "一歩", step_done: null, ...extra });
 
@@ -417,4 +417,68 @@ test("バックアップ：読み込んだ記録に、余計な項目は入ら�
   assert.equal(got.store.rounds.length, 1);
   assert.equal(got.extra, undefined);
   assert.equal(Object.hasOwn(got, "admin"), false);
+});
+
+// ---------------------------------------------------------------- 節目のはげまし
+
+const done = (n, extra = {}) => ({ ...round(n, { A: 2, B: 2, C: 2, D: 2 }), step_done: true, ...extra });
+
+test("はげましの言葉：差し込みは決めた名前だけで、空でなく、長すぎない", () => {
+  const known = new Set(["rate", "axis", "from", "to", "n", "round", "total"]);
+  for (const [name, text] of Object.entries(CHEERS)) {
+    assert.ok(text.length >= 10 && text.length <= 70, `${name}: ${text.length}字`);
+    for (const m of text.matchAll(/\{(\w+)\}/g)) assert.ok(known.has(m[1]), `${name}: {${m[1]}}`);
+  }
+});
+
+test("一歩が続いた回数と、日付のあき", () => {
+  assert.equal(trailingDone([]), 0);
+  assert.equal(trailingDone([done(1), done(2, { step_done: false }), done(3), done(4)]), 2);
+  assert.equal(trailingDone([done(1), done(2), done(3, { step_done: null })]), 0);
+  assert.equal(gapDays("2026-10-01", "2026-10-22"), 21);
+  assert.equal(gapDays("2026-10-31", "2026-11-01"), 1);
+  assert.equal(gapDays("2026-12-31", "2027-01-02"), 2);
+  assert.equal(gapDays("x", "2026-10-22"), 0);
+  assert.equal(gapDays(undefined, undefined), 0);
+});
+
+test("回の最初の一言：前回の一歩の結果と、節目の回（2・3・6回目）", () => {
+  assert.deepEqual(roundStartNotes([]), []); // 1回目は出さない（見立ての先頭に出す）
+  assert.deepEqual(roundStartNotes([done(1)]), [CHEERS.stepDone.replace("{rate}", "100"), CHEERS.second]);
+  assert.deepEqual(roundStartNotes([done(1, { step_done: false })]), [CHEERS.stepMissed, CHEERS.second]);
+  assert.deepEqual(roundStartNotes([done(1), done(2, { step_done: false })]), [CHEERS.stepMissed, CHEERS.memoOpen]); // 3回目
+  assert.deepEqual(roundStartNotes([done(1), done(2), done(3)]), [CHEERS.streak3]); // 3回続けてやれた（4回目）
+  assert.deepEqual(roundStartNotes([done(1), done(2), done(3), done(4)]), [CHEERS.stepDone.replace("{rate}", "100")]); // 4回続けたら通常の言葉
+  const six = roundStartNotes([1, 2, 3, 4, 5].map((n) => done(n, n === 5 ? { step_done: false } : {})));
+  assert.equal(six.length, 2);
+  assert.equal(six[1], CHEERS.full.replace("{round}", "6").replace("{total}", "10")); // 6回目：10問そろう
+  assert.deepEqual(roundStartNotes([done(1), done(2, { step_done: null })]), [CHEERS.memoOpen]); // 一歩を聞いていない（記録の前の版）
+  assert.equal(roundStartNotes([done(1), done(2), done(3, { step_done: false })]).length, 1);
+  assert.ok(roundStartNotes([done(1, { step_done: false }), done(2), done(3)])[0].includes("67%")); // 3回のうち、やれたのは2回
+});
+
+test("見立ての先頭の一言：1回目は最後まで答えたこと、2回目以降はいちばん上がった軸（下がったときは出さない）", () => {
+  const cur = (r, A, B, C, D) => ({ round: r, fixed: { A: { score: A }, B: { score: B }, C: { score: C }, D: { score: D } } });
+  assert.deepEqual(diagnosisNotes([], cur(1, 1, 1, 1, 1)), [CHEERS.firstDiagnosis]);
+  const prev = [round(1, { A: 2, B: 2, C: 2, D: 2 })];
+  assert.deepEqual(diagnosisNotes(prev, cur(2, 3, 2, 2, 2)), ["最も変化が大きかったのは「任せる・任される」（2→3）です。確かな手応えの証左です。"]);
+  assert.match(diagnosisNotes(prev, cur(2, 3, 4, 2, 3))[0], /「社長がいなくても決まるか」（2→4）/); // いちばん大きい軸
+  assert.match(diagnosisNotes(prev, cur(2, 3, 3, 2, 2))[0], /「任せる・任される」（2→3）/); // 同じ上がり幅は、先の軸
+  assert.deepEqual(diagnosisNotes(prev, cur(2, 1, 2, 1, 2)), []); // 下がった・変わらない
+  assert.deepEqual(diagnosisNotes(prev, { round: 2, fixed: {} }), []);
+  assert.deepEqual(diagnosisNotes([], cur(2, 4, 4, 4, 4)), []); // 前の記録が無い
+});
+
+test("ホームの一言：間が空いたときはその言葉、次の回に問いが増えるときはその数（6回目以降は出さない）", () => {
+  const r = (n, date) => round(n, { A: 2, B: 2, C: 2, D: 2 }, { date });
+  assert.deepEqual(homeNotes([], "2026-11-05"), []);
+  assert.deepEqual(homeNotes([r(1, "2026-11-01")], "2026-11-05"), [CHEERS.nextCount.replace("{n}", "6")]); // 次は2回目で6問
+  assert.deepEqual(homeNotes([r(1, "2026-11-01"), r(2, "2026-11-04")], "2026-11-05"), [CHEERS.nextCount.replace("{n}", "7")]);
+  assert.deepEqual(homeNotes([1, 2, 3, 4, 5].map((n) => r(n, "2026-11-04")), "2026-11-05"), [CHEERS.nextCount.replace("{n}", "10")]); // 次は6回目で10問
+  assert.deepEqual(homeNotes([1, 2, 3, 4, 5, 6].map((n) => r(n, "2026-11-04")), "2026-11-05"), []); // これ以上増えない
+  assert.deepEqual(homeNotes([r(1, "2026-10-01")], "2026-10-22"), [CHEERS.gapReturn]); // 間が空いたら、問いが増える言葉より戻ってきた言葉を
+  assert.deepEqual(homeNotes([r(1, "2026-10-01")], "2026-10-21"), [CHEERS.nextCount.replace("{n}", "6")]); // 20日はまだ
+  assert.equal(CHEER_GAP_DAYS, 21);
+  assert.equal(MEMO_FROM_ROUND, 3);
+  assert.equal(DEEP_BY_ROUND.length, 6);
 });

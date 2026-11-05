@@ -2,8 +2,8 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, localDate,
-  makeBackup, memoEntries, memoOf, quizOrder, readBackup, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  makeBackup, memoEntries, memoOf, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
@@ -66,6 +66,11 @@ function footer() {
   return h("footer", {},
     "試作版です。答えは診断のために AI（Claude）へ送られますが、サーバーには保存しません。記録はこのブラウザの中だけに残ります。",
     h("br"), "掲載の回答例はすべて架空です。");
+}
+
+// 節目の一言（続けるためのはげまし）。無いときは何も出さない
+function cheerBox(notes) {
+  return notes.length ? h("div", { class: "cheer" }, notes.map((t) => h("p", {}, t))) : null;
 }
 
 function errorBox(msg) {
@@ -297,6 +302,7 @@ function showHome() {
   screen(
     h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
+    cheerBox(homeNotes(rounds)),
     growthCard(),
     h("div", { class: "row" },
       h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を${resumableDraft() ? "続ける" : "始める"}`),
@@ -471,6 +477,7 @@ function showQuiz(resumed = false) {
     draft = { round, deep_texts: deepList.map((d) => d.text), stage: "quiz", quiz: {} };
     writeDraft();
   }
+  const startNotes = resumed ? [] : roundStartNotes(state.store.rounds); // 回の最初の問いに、一度だけ出す一言
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
 
@@ -600,6 +607,7 @@ function showQuiz(resumed = false) {
       const fixed = step.type === "fixed";
       nodes = [
         ...head(`${i + 1} / ${total}`),
+        i === 0 ? cheerBox(startNotes) : null,
         adaptive && !fixed ? h("p", { class: "lead" }, round === 1
           ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
           : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
@@ -695,6 +703,7 @@ function showDiagnosis(resumed = false) {
   screen(
     resumed ? resumedNote() : null,
     h("h1", {}, `${round} 回目の見立て`),
+    cheerBox(diagnosisNotes(state.store.rounds, state.current)),
     h("section", { class: "card" }, h("h2", {}, "今の状態"), h("p", {}, d.summary), notes),
     h("section", { class: "card" },
       h("h2", {}, "今日の学び"),
@@ -783,6 +792,7 @@ function showDone(saved) {
   screen(
     h("h1", {}, `${c.round} 回目、おつかれさまでした`),
     saved ? null : errorBox("このブラウザに記録を保存できませんでした（プライベートブラウズでは残りません）。"),
+    cheerBox([stepDecidedNote()]),
     HAND ? recordBox(c) : null,
     h("section", { class: "card" },
       h("h2", {}, "コーチに送るまとめ"),
