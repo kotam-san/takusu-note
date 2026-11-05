@@ -3,7 +3,7 @@
 
 import {
   AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, localDate,
-  memoOf, quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
+  memoEntries, memoOf, quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
@@ -804,6 +804,7 @@ function growthCard(withPast = true) {
   if (!rounds.length) return null;
   const rate = stepDoneRate(rounds);
   const lessons = rounds.filter((r) => r.lesson).reverse();
+  const memos = memoEntries(rounds);
 
   const reset = () => {
     if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。消すには「OK」、やめるには「キャンセル」を押してください。`)) return;
@@ -821,6 +822,10 @@ function growthCard(withPast = true) {
         rounds.map((r) => h("tr", {}, h("td", {}, `${r.round}回目（${r.date}）`), AXIS_KEYS.map((k) => h("td", {}, r.scores[k])))))),
     lessons.length ? h("h3", {}, "これまでの学び") : null,
     lessons.map((r) => h("details", { class: "learned" }, h("summary", {}, `${r.round}回目：${r.lesson.title}`), h("p", {}, r.lesson.body))),
+    memos.length ? h("h3", {}, "これまでのメモ") : null,
+    memos.map((e) => h("details", { class: "learned" },
+      h("summary", {}, `${e.round}回目（${e.date}）：メモ ${e.items.length} 件`),
+      h("ul", { class: "memos" }, e.items.map((it) => h("li", {}, h("b", {}, it.label), h("span", { class: "memo-text" }, it.memo)))))),
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）"

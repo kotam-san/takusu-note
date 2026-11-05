@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, memoOf,
+  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, memoEntries, memoOf,
   quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
 import { DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
@@ -354,4 +354,21 @@ test("前に書いたメモ：同じ軸のいちばん最近のもの（無け�
   assert.deepEqual(lastMemo(rounds, "B"), { round: 3, memo: "3回目のB" });
   assert.equal(lastMemo(rounds, "C"), null);
   assert.equal(lastMemo([], "A"), null);
+});
+
+test("これまでのメモ：新しい回が先。1つの回の中は、推移の4問（A〜D）→ 深掘り。メモの無い回は含めない", () => {
+  const rounds = [
+    round(1, { A: 1, B: 1, C: 1, D: 1 }),
+    round(2, { A: 1, B: 1, C: 1, D: 1 }, { memos: { fixed: { D: "Dのメモ", A: "Aのメモ" }, deep: [{ text: "深掘りの問い", memo: "深掘りのメモ" }] } }),
+    round(3, { A: 1, B: 1, C: 1, D: 1 }, { memos: { fixed: {}, deep: [] } }),
+    round(4, { A: 1, B: 1, C: 1, D: 1 }, { memos: { fixed: { B: "Bのメモ" }, deep: [] } }),
+  ];
+  const got = memoEntries(rounds);
+  assert.deepEqual(got.map((e) => e.round), [4, 2]);
+  assert.deepEqual(got[0].items, [{ label: "社長がいなくても決まるか", memo: "Bのメモ" }]);
+  assert.deepEqual(got[1].items.map((i) => i.memo), ["Aのメモ", "Dのメモ", "深掘りのメモ"]);
+  assert.equal(got[1].items[2].label, "深掘りの問い");
+  assert.equal(got[1].date, "2026-10-15");
+  assert.deepEqual(memoEntries([]), []);
+  assert.deepEqual(memoEntries([round(1, { A: 1, B: 1, C: 1, D: 1 })]), []);
 });
