@@ -2,8 +2,8 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, diagnosisNotes, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
-  memoEntries, memoOf, quizOrder, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  makeBackup, memoEntries, memoOf, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
@@ -382,6 +382,7 @@ function showProfile() {
       concernKinds) : null,
     h("div", { class: "row" }, submit, first ? null : h("button", { onclick: showHome }, "やめる")),
     err,
+    first && !HAND ? restoreCard() : null,
   );
   syncOther();
 }
@@ -841,9 +842,88 @@ function growthCard(withPast = true) {
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）"
         : r.step_done === false ? `（やれなかった${r.step_reason ? `・${STEP_MISS_REASONS[r.step_reason]}` : ""}）` : "（次の回で確認）"))),
     withPast ? pastSummaries(rounds) : null,
-    // 手元モードの記録はファイルなので、画面からは消さない
-    HAND ? null : h("div", { class: "row", style: "margin-top:20px" }, h("button", { onclick: reset }, "記録をすべて消す")),
+    // 手元モードの記録はファイルなので、画面からは消さず、書き出しも読み込みもしない
+    HAND ? null : backupControls(h("button", { onclick: reset }, "記録をすべて消す")),
   );
+}
+
+// ---------------------------------------------------------------- 記録のバックアップ（公開バージョン）
+// 記録はこのブラウザの中にしか無いので、ファイルに書き出して取っておき、読み込んで戻せるようにする
+
+const BACKUP_ERRORS = {
+  size: () => "ファイルが大きすぎます。託すノートで書き出したファイルを選んでください。",
+  format: () => "託すノートで書き出した記録のファイルではありません。",
+  role: (r) => `${ROLE_NAME[r.fileRole]}の記録のファイルです。いまは${ROLE_NAME[state.role]}を選んでいます。はじめの画面から${ROLE_NAME[r.fileRole]}を選び直して、読み込んでください。`,
+  shape: () => "この記録は読み込めませんでした（形が合いません）。託すノートの新しい版で書き出したものかもしれません。",
+};
+
+// 「記録を書き出す」と「記録を読み込む」のボタン（と、結果を伝える欄）。extra は同じ行に並べるボタン
+function backupControls(...extra) {
+  const status = h("p", { class: "notice", role: "status" });
+  const exportButton = h("button", { onclick: () => exportRecord(status) }, "記録を書き出す");
+  return h("div", { style: "margin-top:20px" },
+    h("p", { class: "notice" }, "記録はこのブラウザの中にだけあります。端末を替える前や、サイトのデータを消す前に、書き出しておくと戻せます。"),
+    h("div", { class: "row" }, exportButton, importButton("記録を読み込む", status), ...extra),
+    status);
+}
+
+// はじめの画面（記録が空のとき）の入口。端末を替えたときなど、書き出したファイルから続きを始められる
+function restoreCard() {
+  const status = h("p", { class: "notice", role: "status" });
+  return h("section", { class: "card" },
+    h("h2", {}, "以前の記録がありますか"),
+    h("p", { class: "notice" }, "別の端末や、データを消す前に「記録を書き出す」で取っておいたファイルがあれば、読み込んで続きから始められます。"),
+    h("div", { class: "row" }, importButton("以前の記録を読み込む", status)),
+    status);
+}
+
+function exportRecord(status) {
+  const name = `takusu-note-${state.role}-${localDate()}.json`;
+  const blob = new Blob([JSON.stringify(makeBackup(state.role, state.store), null, 1)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = h("a", { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  status.textContent = `「${name}」を書き出しました。答えやメモが入っているので、人に見せない場所に保管してください。`;
+}
+
+// 書き出したファイルを選んで、記録を置き換える。いまの記録があるときは、確かめてから
+function importButton(label, status) {
+  const input = h("input", { type: "file", accept: "application/json,.json", hidden: true });
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    input.value = ""; // 同じファイルをもう一度選べるように
+    if (!file) return;
+    status.textContent = "";
+    let text;
+    try {
+      if (file.size > BACKUP_MAX_CHARS * 3) throw new Error("size");
+      text = await file.text();
+    } catch {
+      status.textContent = file.size > BACKUP_MAX_CHARS * 3 ? BACKUP_ERRORS.size() : "ファイルを読めませんでした。";
+      return;
+    }
+    const r = readBackup(text, state.role);
+    if (r.error) {
+      status.textContent = BACKUP_ERRORS[r.error](r);
+      return;
+    }
+    const now = state.store.rounds.length;
+    if (now && !confirm(`いまの記録（${now}回分）を、ファイルの記録（${r.store.rounds.length}回分）で置き換えます。元に戻せません。置き換えるには「OK」、やめるには「キャンセル」を押してください。`)) return;
+    const before = state.store;
+    state.store = r.store;
+    if (!(await save())) {
+      state.store = before;
+      status.textContent = "記録を保存できませんでした。ブラウザの保存領域がいっぱいかもしれません。";
+      return;
+    }
+    clearDraft(); // 置き換える前の記録の、途中の回は開かない
+    state.current = null;
+    showHome();
+  });
+  return h("span", {}, input, h("button", { onclick: () => input.click() }, label));
 }
 
 // 過去の回のまとめ。回を選ぶと、その回の記録に残っているもの（一歩・結果・理由・点数・学び）でまとめを作る

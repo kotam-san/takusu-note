@@ -282,6 +282,28 @@ export function sampleAnswers(sample, deepCount, round, base = emptyAnswers()) {
   };
 }
 
+// ---------------------------------------------------------------- 記録のバックアップ（書き出し・読み込み）
+// 公開バージョンの記録はそのブラウザの中にしか無いので、ファイルに書き出して取っておき、読み込んで戻せるようにする。
+// ファイルには、答え・メモ・プロフィールなど記録の全部が入る。読み込むときは、託すノートのものか・今の立場のものか・記録の形か、を確かめる
+
+export const BACKUP_APP = "takusu-note";
+export const BACKUP_MAX_CHARS = 1_000_000; // 記録は100回分でも、これよりずっと小さい
+
+export function makeBackup(role, store, now = new Date()) {
+  return { app: BACKUP_APP, version: STORE_VERSION, role, exported_on: localDate(now), store };
+}
+
+// 読み込む。読めたら { store }、だめなら { error: "size" | "format" | "role" | "shape", fileRole? }
+export function readBackup(text, role) {
+  if (typeof text !== "string" || text.length > BACKUP_MAX_CHARS) return { error: "size" };
+  let data;
+  try { data = JSON.parse(text); } catch { return { error: "format" }; }
+  if (!data || typeof data !== "object" || data.app !== BACKUP_APP || (data.role !== "ceo" && data.role !== "leader")) return { error: "format" };
+  if (data.role !== role) return { error: "role", fileRole: data.role };
+  const store = validateStore(data.store);
+  return store ? { store } : { error: "shape" };
+}
+
 // ---------------------------------------------------------------- 日付
 
 // その Mac・その端末の時計での年月日（toISOString は世界標準時なので、日本の朝は前日になる）
