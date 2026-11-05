@@ -3,10 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, quizOrder,
-  roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
+  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, memoOf,
+  quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
-import { DEEP_BY_ROUND, QUESTIONS, SAMPLE } from "../docs/questions.js";
+import { DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
 
 const round = (n, scores, extra = {}) => ({ round: n, date: "2026-10-15", scores, step: "一歩", step_done: null, ...extra });
 
@@ -293,4 +293,65 @@ test("深掘りの選び方：軸が偏らないよう、まだ出ていない�
 test("深掘りの数：回の値が壊れていても、1回目として扱う", () => {
   const list = ["A", "B", "C"].map((axis, i) => ({ axis, text: `問い${i}` }));
   for (const r of [0, -3, NaN, undefined, "x", 1.9]) assert.equal(deepForRound(list, r).length, 1, String(r));
+});
+
+// ---------------------------------------------------------------- 各問いのメモ（3回目から）
+
+test("メモ：3回目から。書いたときだけ下書きと記録に入り、空の欄は持たない", () => {
+  assert.equal(MEMO_FROM_ROUND, 3);
+  const a = emptyAnswers();
+  const fixedB = { type: "fixed", k: "B" };
+  const deep1 = { type: "deep", i: 1 };
+  assert.equal(memoOf(a, fixedB), "");
+  assert.equal(answersToQuiz(a, 3).memos, undefined); // 書いていなければ、下書きの形は今まで通り
+  assert.equal(roundMemos(a, [{ text: "q0" }, { text: "q1" }, { text: "q2" }]), null);
+  setMemo(a, fixedB, "  口を出さずに待てた  ");
+  setMemo(a, deep1, "朝会で伝えた");
+  setMemo(a, { type: "deep", i: 2 }, "   "); // 空白だけは持たない
+  assert.equal(memoOf(a, fixedB), "  口を出さずに待てた  ");
+  assert.deepEqual(answersToQuiz(a, 3).memos, { fixed: { B: "  口を出さずに待てた  " }, deep: [null, "朝会で伝えた", null] });
+  assert.deepEqual(roundMemos(a, [{ text: "q0" }, { text: "q1" }, { text: "q2" }]), {
+    fixed: { B: "口を出さずに待てた" }, deep: [{ text: "q1", memo: "朝会で伝えた" }],
+  });
+  assert.equal(roundMemos({ ...a, memos: { fixed: { A: "あ".repeat(MEMO_MAX + 50) }, deep: [] } }, []).fixed.A.length, MEMO_MAX);
+});
+
+test("メモ：下書きから読み戻す（壊れた値は捨てる）。書き出した形はそのまま戻る", () => {
+  const a = emptyAnswers();
+  setMemo(a, { type: "fixed", k: "A" }, "メモA");
+  setMemo(a, { type: "deep", i: 0 }, "メモd0");
+  assert.deepEqual(answersFromQuiz(answersToQuiz(a, 2), 2, 3).memos, a.memos);
+  const got = answersFromQuiz({ memos: { fixed: { A: 5, B: "ok", X: "軸なし", C: "あ".repeat(MEMO_MAX + 9) }, deep: [null, "d1", 7, "範囲外"] } }, 2, 3);
+  assert.deepEqual(Object.keys(got.memos.fixed).sort(), ["B", "C"]);
+  assert.equal(got.memos.fixed.C.length, MEMO_MAX);
+  assert.equal(got.memos.deep[1], "d1");
+  assert.equal(got.memos.deep[3], undefined); // 問いの数の外は読まない
+  for (const broken of [null, undefined, "x", { memos: null }, { memos: "x" }, { memos: { fixed: "a", deep: "b" } }]) {
+    assert.deepEqual(answersFromQuiz(broken, 3, 3).memos, { fixed: {}, deep: [] }, String(broken));
+  }
+});
+
+test("メモ：記録に持てる形か確かめる（壊れていれば記録ごと読み込まない）", () => {
+  const withMemos = (memos) => ({ ...emptyStore(), rounds: [round(1, { A: 1, B: 2, C: 3, D: 4 }, { memos })] });
+  assert.ok(validateStore(withMemos(undefined))); // メモの無い古い記録
+  assert.ok(validateStore(withMemos({ fixed: { A: "メモ", D: "あ".repeat(MEMO_MAX) }, deep: [{ text: "問い", memo: "メモ" }] })));
+  assert.ok(validateStore(withMemos({ fixed: {}, deep: [] })));
+  for (const bad of [
+    null, "メモ", [], { fixed: {}, deep: "x" }, { fixed: "x", deep: [] }, { fixed: { A: 3 }, deep: [] }, { fixed: { X: "軸なし" }, deep: [] },
+    { fixed: { A: "あ".repeat(MEMO_MAX + 1) }, deep: [] }, { fixed: {}, deep: [{ text: "問い" }] }, { fixed: {}, deep: [null] },
+    { fixed: {}, deep: Array.from({ length: 9 }, () => ({ text: "q", memo: "m" })) }, { fixed: {}, deep: [{ text: "あ".repeat(121), memo: "m" }] },
+  ]) assert.equal(validateStore(withMemos(bad)), null, JSON.stringify(bad)?.slice(0, 60));
+});
+
+test("前に書いたメモ：同じ軸のいちばん最近のもの（無ければ null）", () => {
+  const rounds = [
+    round(1, { A: 1, B: 1, C: 1, D: 1 }),
+    round(3, { A: 1, B: 1, C: 1, D: 1 }, { memos: { fixed: { A: "3回目のA", B: "3回目のB" }, deep: [] } }),
+    round(4, { A: 1, B: 1, C: 1, D: 1 }, { memos: { fixed: { A: "4回目のA" }, deep: [] } }),
+    round(5, { A: 1, B: 1, C: 1, D: 1 }),
+  ];
+  assert.deepEqual(lastMemo(rounds, "A"), { round: 4, memo: "4回目のA" });
+  assert.deepEqual(lastMemo(rounds, "B"), { round: 3, memo: "3回目のB" });
+  assert.equal(lastMemo(rounds, "C"), null);
+  assert.equal(lastMemo([], "A"), null);
 });

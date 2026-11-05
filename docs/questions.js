@@ -239,6 +239,10 @@ export const FIRST_DEEP_PICK = [0, 2, 4];
 // 全体の数は 4 + この数：5問 → 6 → 7 → 8 → 9 → 10問。変えるときはここだけ（core.js の deepForRound が使う）
 export const DEEP_BY_ROUND = [1, 2, 3, 4, 5, 6];
 
+// 各問いのメモ欄（任意）は、この回から出す。最初は答えることに慣れてもらい、回を重ねて書きたくなるころから
+export const MEMO_FROM_ROUND = 3;
+export const MEMO_MAX = 400;
+
 // プロフィールから1回目の深掘り6問と例を作る（AIを使わない）。1回目に出すのは FIRST_DEEP_PICK の3問
 export function firstRound(role, profile) {
   const base = QUESTIONS[role];

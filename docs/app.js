@@ -2,12 +2,12 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, localDate, quizOrder,
-  roundSummary, sampleAnswers, scoreOf, seriesByAxis, setScore, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, localDate,
+  memoOf, quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
-  AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, FIRST_DEEP_PICK, firstRound, fixedFor,
+  AXIS_NAMES, CONCERN_KINDS, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, FIRST_DEEP_PICK, firstRound, fixedFor,
 } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -519,7 +519,8 @@ function showQuiz(resumed = false) {
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
-      state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId() };
+      const memos = roundMemos(answers, deepList); // 各問いのメモは AI に送らず、記録にだけ残す
+      state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId(), ...(memos ? { memos } : {}) };
       draft = { ...draft, stage: "diagnosis", current: state.current, pick: null, reply: "" };
       writeDraft();
       showDiagnosis();
@@ -573,6 +574,15 @@ function showQuiz(resumed = false) {
         if (!score(step)) return err.replaceChildren(errorBox("ひとつ選んでください。"));
         go(i + 1);
       };
+      // メモ欄（任意）は3回目から。開いている間は、点を選んでも次へ進まない（書いてから「次へ」を押す）
+      let memoBox = null;
+      if (round >= MEMO_FROM_ROUND) {
+        const memo = h("textarea", { maxlength: String(MEMO_MAX), rows: "3", placeholder: "気づいたこと、次に試したいこと", "aria-label": "この問いのメモ（任意）" });
+        memo.value = memoOf(answers, step);
+        memo.addEventListener("input", () => { setMemo(answers, step, memo.value); capture(); });
+        memoBox = h("details", { class: "memo-box", open: memo.value !== "" }, h("summary", {}, "メモを書く（任意）"), memo);
+      }
+      const prevMemo = round >= MEMO_FROM_ROUND && step.type === "fixed" ? lastMemo(state.store.rounds, step.k) : null; // 毎回同じ問いなので、前に書いたメモを見せる
       const group = h("div", { class: "scale", role: "radiogroup", "aria-label": step.text },
         SCALE.map((s) =>
           h("label", {}, h("input", { type: "radio", name: step.name, value: s.value, checked: score(step) === s.value }), h("span", {}, s.label))));
@@ -584,7 +594,7 @@ function showQuiz(resumed = false) {
         const input = ev.target.closest("label")?.querySelector("input") ?? (ev.target.matches("input") ? ev.target : null);
         if (!input) return;
         setScore(answers, step, Number(input.value));
-        go(i + 1);
+        if (!memoBox?.open) go(i + 1);
       });
       const fixed = step.type === "fixed";
       nodes = [
@@ -599,7 +609,8 @@ function showQuiz(resumed = false) {
             !fixed && step.d.because ? h("div", { class: "because" }, `この問いにした理由：${step.d.because}`) : null,
             heading(step.text),
             fixed ? h("div", { class: "example" }, examples[step.k]) : null,
-            group)),
+            prevMemo ? h("p", { class: "notice", style: "margin:8px 0 0" }, `${prevMemo.round} 回目のメモ：${prevMemo.memo}`) : null,
+            group, memoBox)),
         h("div", { class: "row" },
           i > 0 ? h("button", { onclick: () => go(i - 1) }, "戻る") : null,
           h("button", { class: "primary", onclick: advance }, "次へ"),
@@ -732,7 +743,7 @@ function showSteps(resumed = false) {
     c.date = localDate();
     c.step = step.slice(0, 80);
     const lesson = clipLesson(c.diagnosis?.lesson);
-    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}) });
+    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}), ...(c.memos ? { memos: c.memos } : {}) });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
     state.store.next_examples = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.coaching.fixed_examples[k].slice(0, 120)]));
     const ok = await save();
@@ -968,7 +979,7 @@ function recordBox(c) {
         role: state.role, round_id: c.id,
         record: {
           round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
-          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step,
+          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step, memos: c.memos,
         },
       });
       status.textContent = `この回の記録を残しました（rounds/${out.file}）。答えたことは「わたしのこと.md」にも足しました。`;

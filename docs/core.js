@@ -1,7 +1,7 @@
 // 画面に依存しない計算（テスト対象）：記録の検証、推移、コーチに送るまとめ。
 
 import { validateProfile } from "./profile.js";
-import { AXIS_NAMES, CONCERN_KINDS, DEEP_BY_ROUND, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
+import { AXIS_NAMES, CONCERN_KINDS, DEEP_BY_ROUND, MEMO_MAX, STEP_MISS_REASONS, STEP_NOTE_MAX } from "./questions.js";
 
 export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
@@ -26,6 +26,7 @@ export function validateStore(data) {
     if (![true, false, null, undefined].includes(r.step_done)) return null;
     if (r.lesson != null && !(isStr(r.lesson?.title, LESSON_TITLE_MAX) && isStr(r.lesson?.body, LESSON_BODY_MAX))) return null;
     if (!validMiss(r)) return null;
+    if (!validMemos(r.memos)) return null;
   }
   if (data.next_deep != null) {
     if (!Array.isArray(data.next_deep) || data.next_deep.length > 8) return null;
@@ -51,6 +52,23 @@ function validMiss(r) {
   if (r.step_done !== false) return false;
   if (r.step_reason !== undefined && !isMissReason(r.step_reason)) return false;
   return r.step_note === undefined || (isStr(r.step_note, STEP_NOTE_MAX) && !r.step_note.includes("\n"));
+}
+
+// 各問いのメモ（任意・3回目から）。{ fixed: { A: 文 }, deep: [{ text, memo }] }。無い古い記録も通す
+function validMemos(m) {
+  if (m === undefined) return true;
+  if (!m || typeof m !== "object" || !m.fixed || typeof m.fixed !== "object" || !Array.isArray(m.deep) || m.deep.length > 8) return false;
+  for (const [k, v] of Object.entries(m.fixed)) if (!AXIS_KEYS.includes(k) || !isStr(v, MEMO_MAX)) return false;
+  return m.deep.every((d) => d && isStr(d.text, 120) && isStr(d.memo, MEMO_MAX));
+}
+
+// この軸の問い（毎回同じ）に、いちばん最近書いたメモ
+export function lastMemo(rounds, axis) {
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const memo = rounds[i].memos?.fixed?.[axis];
+    if (typeof memo === "string" && memo) return { round: rounds[i].round, memo };
+  }
+  return null;
 }
 
 export function emptyStore() {
@@ -100,7 +118,7 @@ export function deepForRound(list, round) {
 // 下書き（draft.quiz）は { fixed: { A..D: 点|null }, deep: [点|null], concern, kind } で、この形は変えない。
 // 下書きは利用者も書き換えられるので、読み戻すときは点の範囲と引っかかりの種類を確かめる。
 
-export const emptyAnswers = () => ({ fixed: {}, deep: [], concern: "", kind: "" });
+export const emptyAnswers = () => ({ fixed: {}, deep: [], concern: "", kind: "", memos: { fixed: {}, deep: [] } });
 
 // 問いの順番：推移の4問（AXIS_KEYS の順）→ 深掘り。最後の画面（ひとこと／引っかかり）は含めない
 export const quizOrder = (deepCount) => [
@@ -115,6 +133,29 @@ export function setScore(answers, step, value) {
   else answers.deep[step.i] = value;
 }
 
+// 各問いのメモ（3回目から）。答えと同じく、問いごとに持つ
+export const memoOf = (answers, step) => (step.type === "fixed" ? answers.memos.fixed[step.k] : answers.memos.deep[step.i]) || "";
+
+export function setMemo(answers, step, text) {
+  if (step.type === "fixed") answers.memos.fixed[step.k] = text;
+  else answers.memos.deep[step.i] = text;
+}
+
+// その回のメモを、記録に残す形にする（空のものは持たない。1つも無ければ null）
+export function roundMemos(answers, deepList) {
+  const fixed = {};
+  for (const k of AXIS_KEYS) {
+    const t = (answers.memos.fixed[k] ?? "").trim();
+    if (t) fixed[k] = t.slice(0, MEMO_MAX);
+  }
+  const deep = [];
+  deepList.forEach((d, i) => {
+    const t = (answers.memos.deep[i] ?? "").trim();
+    if (t) deep.push({ text: d.text, memo: t.slice(0, MEMO_MAX) });
+  });
+  return Object.keys(fixed).length || deep.length ? { fixed, deep } : null;
+}
+
 // 最初の未回答の問い（番号）。すべて答えてあれば、最後の画面の番号（問いの数）を返す
 export function firstOpenStep(answers, deepCount) {
   const order = quizOrder(deepCount);
@@ -126,11 +167,15 @@ const isKind = (v) => typeof v === "string" && Object.hasOwn(CONCERN_KINDS, v);
 
 // 答えを下書きの形にする。kind は、1回目ははじめに選んだ種類、2回目以降は最後の画面で選んだ種類
 export function answersToQuiz(answers, deepCount, kind = answers.kind) {
+  const memoFixed = Object.fromEntries(AXIS_KEYS.filter((k) => (answers.memos.fixed[k] ?? "").trim()).map((k) => [k, answers.memos.fixed[k]]));
+  const memoDeep = Array.from({ length: deepCount }, (_, i) => ((answers.memos.deep[i] ?? "").trim() ? answers.memos.deep[i] : null));
+  const hasMemos = Object.keys(memoFixed).length > 0 || memoDeep.some(Boolean);
   return {
     fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, answers.fixed[k] || null])),
     deep: Array.from({ length: deepCount }, (_, i) => answers.deep[i] || null),
     concern: answers.concern,
     kind: kind ?? "",
+    ...(hasMemos ? { memos: { fixed: memoFixed, deep: memoDeep } } : {}), // メモは書いたときだけ（3回目から）
   };
 }
 
@@ -138,11 +183,16 @@ export function answersToQuiz(answers, deepCount, kind = answers.kind) {
 // 種類は2回目以降だけ読む（1回目の種類は、はじめの画面で記録に入っている）
 export function answersFromQuiz(quiz, deepCount, round, base = emptyAnswers()) {
   const d = quiz && typeof quiz === "object" ? quiz : {};
-  const answers = { fixed: { ...base.fixed }, deep: [...base.deep], concern: base.concern, kind: base.kind };
+  const answers = { fixed: { ...base.fixed }, deep: [...base.deep], concern: base.concern, kind: base.kind, memos: { fixed: { ...base.memos.fixed }, deep: [...base.memos.deep] } };
   for (const k of AXIS_KEYS) if (isScore(d.fixed?.[k])) answers.fixed[k] = d.fixed[k];
   for (let i = 0; i < deepCount; i++) if (isScore(d.deep?.[i])) answers.deep[i] = d.deep[i];
   if (typeof d.concern === "string") answers.concern = d.concern;
   if (round !== 1 && isKind(d.kind)) answers.kind = d.kind;
+  const m = d.memos && typeof d.memos === "object" ? d.memos : {};
+  const mf = m.fixed && typeof m.fixed === "object" ? m.fixed : {};
+  const md = Array.isArray(m.deep) ? m.deep : []; // 文字列を並びとして読まない
+  for (const k of AXIS_KEYS) if (typeof mf[k] === "string" && mf[k]) answers.memos.fixed[k] = mf[k].slice(0, MEMO_MAX);
+  for (let i = 0; i < deepCount; i++) if (typeof md[i] === "string" && md[i]) answers.memos.deep[i] = md[i].slice(0, MEMO_MAX);
   return answers;
 }
 
@@ -153,6 +203,7 @@ export function sampleAnswers(sample, deepCount, round, base = emptyAnswers()) {
     deep: Array.from({ length: deepCount }, (_, i) => Number(sample.deep[i] ?? 2)),
     concern: sample.concern,
     kind: round !== 1 && isKind(sample.concern_kind) ? sample.concern_kind : base.kind,
+    memos: base.memos, // 回答例では、メモは触らない
   };
 }
 
