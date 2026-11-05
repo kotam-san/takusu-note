@@ -302,7 +302,7 @@ function showHome() {
       h("button", { onclick: showStart }, "立場を選び直す"),
       h("button", { onclick: showProfile }, "プロフィールを直す"),
     ),
-    h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
+    h("p", { class: "more" }, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
   );
 }
 
