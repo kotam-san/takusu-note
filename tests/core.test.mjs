@@ -3,8 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, memoEntries, memoOf,
-  quizOrder, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
+  BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, draftMatches, emptyAnswers, emptyStore, firstOpenStep, lastMemo, makeBackup, memoEntries, memoOf,
+  quizOrder, readBackup, roundMemos, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, validateStore,
 } from "../docs/core.js";
 import { DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
 
@@ -371,4 +371,50 @@ test("これまでのメモ：新しい回が先。1つの回の中は、推移�
   assert.equal(got[1].date, "2026-10-15");
   assert.deepEqual(memoEntries([]), []);
   assert.deepEqual(memoEntries([round(1, { A: 1, B: 1, C: 1, D: 1 })]), []);
+});
+
+// ---------------------------------------------------------------- 記録のバックアップ
+
+test("バックアップ：書き出して読み込むと、記録（点数・一歩・メモ・学び・プロフィール）がそのまま戻る", () => {
+  const store = {
+    ...emptyStore(),
+    rounds: [
+      round(1, { A: 1, B: 2, C: 3, D: 4 }, { lesson: { title: "学び", body: "本文" } }),
+      round(2, { A: 2, B: 2, C: 2, D: 2 }, { step_done: false, step_reason: "time", step_note: "忙しかった", memos: { fixed: { A: "メモ" }, deep: [{ text: "問い", memo: "深掘りのメモ" }] } }),
+    ],
+    next_deep: [{ axis: "A", text: "次の問い", because: "理由" }],
+    profile: { employees: "1-5", years: "<1", industry: "mfg" },
+  };
+  const backup = makeBackup("ceo", store, new Date(2026, 10, 5, 9, 0));
+  assert.deepEqual({ app: backup.app, version: backup.version, role: backup.role, exported_on: backup.exported_on }, { app: "takusu-note", version: 1, role: "ceo", exported_on: "2026-11-05" });
+  const back = readBackup(JSON.stringify(backup, null, 1), "ceo");
+  assert.deepEqual(back.store, store);
+  assert.equal(back.error, undefined);
+});
+
+test("バックアップ：読み込めないファイルは、理由を分けて断る（託すノートのものでない・壊れた・別の立場・形が違う・大きすぎる）", () => {
+  const good = makeBackup("ceo", { ...emptyStore(), rounds: [round(1, { A: 1, B: 1, C: 1, D: 1 })] });
+  const err = (text, role = "ceo") => readBackup(text, role);
+  assert.deepEqual(err("{壊れた"), { error: "format" });
+  assert.deepEqual(err(""), { error: "format" });
+  assert.deepEqual(err("[]"), { error: "format" });
+  assert.deepEqual(err("null"), { error: "format" });
+  assert.deepEqual(err(JSON.stringify({ ...good, app: "other" })), { error: "format" });
+  assert.deepEqual(err(JSON.stringify({ ...good, role: "admin" })), { error: "format" });
+  assert.deepEqual(err(JSON.stringify(good), "leader"), { error: "role", fileRole: "ceo" }); // 別の立場には入れない
+  assert.deepEqual(err(JSON.stringify({ ...good, store: null })), { error: "shape" });
+  assert.deepEqual(err(JSON.stringify({ ...good, store: { ...good.store, version: 99 } })), { error: "shape" });
+  assert.deepEqual(err(JSON.stringify({ ...good, store: { ...good.store, rounds: [{ round: 1 }] } })), { error: "shape" });
+  assert.deepEqual(err(JSON.stringify({ ...good, store: { ...good.store, rounds: [round(1, { A: 9, B: 1, C: 1, D: 1 })] } })), { error: "shape" }); // 点が範囲の外
+  assert.deepEqual(err("x".repeat(BACKUP_MAX_CHARS + 1)), { error: "size" });
+  assert.deepEqual(err(undefined), { error: "size" });
+  assert.ok(err(JSON.stringify(good)).store); // 元のファイルは読める
+});
+
+test("バックアップ：読み込んだ記録に、余計な項目は入らない（形を確かめた記録だけを返す）", () => {
+  const good = makeBackup("leader", { ...emptyStore(), rounds: [round(1, { A: 1, B: 1, C: 1, D: 1 })] });
+  const got = readBackup(JSON.stringify({ ...good, extra: "x", __proto__: { admin: true } }), "leader");
+  assert.equal(got.store.rounds.length, 1);
+  assert.equal(got.extra, undefined);
+  assert.equal(Object.hasOwn(got, "admin"), false);
 });
