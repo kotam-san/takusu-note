@@ -5,12 +5,13 @@
 - 2つのバージョン：公開バージョン（`docs/` を GitHub Pages で配信・AI は `worker/` の中継が API で呼ぶ・1日30回まで）／手元モード（`local/server.mjs`・自分の `claude -p` で動く・API の鍵は要らない）
 - 起動：画面だけなら `python3 -m http.server 8768 --directory docs`／手元モードは `node local/server.mjs --data <記録のフォルダ> --port 8769`
 - 試験：`node --test tests/*.mjs`（AI は呼ばない。中継の試験は先に `worker` で `npm install`）
-- 構成：`docs/`＝画面／`worker/`＝中継（`src/handlers.js` は手元モードと共有・`src/prompts.js` は AI への指示）／`local/`＝手元モードの入口／`tests/`
+- 構成：`docs/`＝画面／`worker/`＝中継（`src/handlers.js` は手元モードと共有・`src/prompts.js` は AI への指示）／`local/`＝手元モードの入口／`scripts/`＝JS の読み込みの版の更新／`tests/`
 
 ## 罠
 
 - **公開リポジトリ**：実名・会社名・メールアドレス・取引先・家族の話・私的なやり取りを、コード・試験の例・コミットの説明文・README に書かない。それらは `notes/` と `CLAUDE.local.md`（どちらも Git に入れない）へ。コミットの前に `git diff --cached` で確かめる
 - 手元モードで実際に使うときの記録は、このフォルダの外に置く（`--data` で渡す）。中身を公開バージョンに持ち込まない
+- **`docs/*.js` を変えたら `node scripts/stamp-version.mjs`**：`index.html` の JS の読み込みの版（`?v=`）を更新する（古い JS が混ざらないように）。忘れると `node --test tests/*.mjs` が落ちる。新しい JS ファイルを足したら、`index.html` の import map と `local/server.mjs` の `STATIC` にも足す
 - push と中継の deploy（`cd worker && npx wrangler deploy`）は、作者に確かめてから
 
 ## 作業の管理（GitHub の Issue）
