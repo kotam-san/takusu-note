@@ -69,10 +69,11 @@ textarea{width:100%;min-height:96px;font:inherit;border:1px solid var(--line);bo
 .choices button.right{border-color:var(--ok);color:var(--ok);font-weight:600}
 .choices button.wrong{border-color:var(--warn);color:var(--warn)}
 .steps label{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer}
-.kinds input{position:absolute;opacity:0;pointer-events:none}
+.kinds input[type=radio]{position:absolute;opacity:0;pointer-events:none}
 .kinds label:has(input:checked){background:var(--chip);border-color:var(--accent)}
 .kinds label:has(input:checked) span{font-weight:700}
 .kinds label:has(input:focus-visible){outline:2px solid var(--accent)}
+.kinds input[type=text]:focus{outline:none}  /* 枠は label に出る */
 .steps input[type=text]{flex:1;min-width:0;font:inherit;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink)}
 .axes{background:var(--surface-1);border-radius:10px;padding:6px 12px}
 .axrow{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr) 5.5em;align-items:center;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line)}
@@ -105,8 +106,8 @@ footer{color:var(--muted);font-size:12px;margin-top:40px}
 <!-- JS は版つきの URL で読む（更新のとき、新旧の JS が混ざらないように）。版は node scripts/stamp-version.mjs で更新する。
      import map に対応しない古いブラウザでは、版なしの読み込みで今まで通り動く -->
 <script type="importmap">
-{"imports":{"./core.js":"./core.js?v=dccdd757","./profile.js":"./profile.js?v=dccdd757","./questions.js":"./questions.js?v=dccdd757"}}
+{"imports":{"./core.js":"./core.js?v=36bf4969","./profile.js":"./profile.js?v=36bf4969","./questions.js":"./questions.js?v=36bf4969"}}
 </script>
-<script type="module" src="./app.js?v=dccdd757"></script>
+<script type="module" src="./app.js?v=36bf4969"></script>
 </body>
 </html>
