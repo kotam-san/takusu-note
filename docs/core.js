@@ -62,6 +62,22 @@ function validMemos(m) {
   return m.deep.every((d) => d && isStr(d.text, 120) && isStr(d.memo, MEMO_MAX));
 }
 
+// これまでのメモを、読み返す形にする。新しい回が先。1つの回の中は、推移の4問（A〜D）→ 深掘りの順。メモの無い回は含めない
+export function memoEntries(rounds) {
+  return rounds
+    .filter((r) => r.memos)
+    .map((r) => ({
+      round: r.round,
+      date: r.date,
+      items: [
+        ...AXIS_KEYS.filter((k) => r.memos.fixed?.[k]).map((k) => ({ label: AXIS_NAMES[k], memo: r.memos.fixed[k] })),
+        ...(r.memos.deep ?? []).map((d) => ({ label: d.text, memo: d.memo })),
+      ],
+    }))
+    .filter((e) => e.items.length)
+    .reverse();
+}
+
 // この軸の問い（毎回同じ）に、いちばん最近書いたメモ
 export function lastMemo(rounds, axis) {
   for (let i = rounds.length - 1; i >= 0; i--) {

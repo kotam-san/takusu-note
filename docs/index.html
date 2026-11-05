@@ -95,6 +95,11 @@ svg.spark{display:block;width:100%;height:auto;overflow:visible}
 details.learned{border-top:1px solid var(--line);padding:6px 0}
 details.learned summary{cursor:pointer}
 details.learned p{margin:6px 0 0;font-size:15px}
+.memos{margin:6px 0 0;padding-left:0;list-style:none;font-size:15px}
+.memos li{padding:6px 0;border-top:1px solid var(--line)}
+.memos li:first-child{border-top:0}
+.memos b{display:block;font-size:13px;color:var(--sub);font-weight:600}
+.memo-text{display:block;white-space:pre-wrap}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{border-top:1px solid var(--line);padding:6px 4px;text-align:center}
 th:first-child,td:first-child{text-align:left}
@@ -110,8 +115,8 @@ footer{color:var(--muted);font-size:12px;margin-top:40px}
 <!-- JS は版つきの URL で読む（更新のとき、新旧の JS が混ざらないように）。版は node scripts/stamp-version.mjs で更新する。
      import map に対応しない古いブラウザでは、版なしの読み込みで今まで通り動く -->
 <script type="importmap">
-{"imports":{"./core.js":"./core.js?v=0608bdae","./profile.js":"./profile.js?v=0608bdae","./questions.js":"./questions.js?v=0608bdae"}}
+{"imports":{"./core.js":"./core.js?v=16dd0681","./profile.js":"./profile.js?v=16dd0681","./questions.js":"./questions.js?v=16dd0681"}}
 </script>
-<script type="module" src="./app.js?v=0608bdae"></script>
+<script type="module" src="./app.js?v=16dd0681"></script>
 </body>
 </html>
