@@ -26,6 +26,7 @@ export function validateStore(data) {
     if (![true, false, null, undefined].includes(r.step_done)) return null;
     if (r.lesson != null && !(isStr(r.lesson?.title, LESSON_TITLE_MAX) && isStr(r.lesson?.body, LESSON_BODY_MAX))) return null;
     if (!validMiss(r)) return null;
+    if (r.concern_kind != null && !isConcernKind(r.concern_kind)) return null; // null は無いのと同じ
     if (!validMemos(r.memos)) return null;
   }
   if (data.next_deep != null) {
@@ -37,11 +38,18 @@ export function validateStore(data) {
   if (data.profile != null && !validateProfile(data.profile)) return null;
   if (data.first_concern != null && !isStr(data.first_concern, 400)) return null;
   if (data.first_concern_kind != null && !(typeof data.first_concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, data.first_concern_kind))) return null;
+  if (data.outside_nudge != null) {
+    const n = data.outside_nudge;
+    if (typeof n !== "object" || !Number.isInteger(n.round) || n.round < 1) return null;
+    if (!Array.isArray(n.kinds) || n.kinds.length > NUDGE_KINDS.length || !n.kinds.every((k) => NUDGE_KINDS.includes(k))) return null;
+  }
   if (data.next_examples != null) {
     if (typeof data.next_examples !== "object" || !AXIS_KEYS.every((k) => isStr(data.next_examples[k], 120))) return null;
   }
   return data;
 }
+
+const isConcernKind = (v) => typeof v === "string" && Object.hasOwn(CONCERN_KINDS, v);
 
 // 候補のキーか（文字列でないものは、キーの文字に化けて通らないよう先に断る）
 export const isMissReason = (v) => typeof v === "string" && Object.hasOwn(STEP_MISS_REASONS, v);
@@ -88,7 +96,7 @@ export function lastMemo(rounds, axis) {
 }
 
 export function emptyStore() {
-  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null, first_concern_kind: null };
+  return { version: STORE_VERSION, rounds: [], next_deep: null, next_examples: null, profile: null, first_concern: null, first_concern_kind: null, outside_nudge: null };
 }
 
 // ---------------------------------------------------------------- 学びと途中の回
@@ -388,4 +396,54 @@ export function roundSummary(roleName, rounds, index, pick = {}, extra = {}) {
   const reply = typeof extra.reply === "string" ? extra.reply.trim() : "";
   if (pick.reply && reply) lines.push(`3分コーチングでの答え：${oneLine(reply)}`);
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------- 一人で回りにくくなった合図
+// 記録の数字と日付だけで見る（AI は使わない）。合図が出たら、コーチ（いなければ話せる相手）に話すことを勧める。
+
+export const NUDGE_KINDS = ["miss", "same_kind", "gap"];
+const NUDGE_STREAK = 3; // 直近この回数
+export const NUDGE_TITLE = "一人で回すのが難しい時期かもしれません";
+export const NUDGE_BODY = "次のコーチングのセッションで（コーチがいなければ、話せる相手に）、このことを話してみませんか。書いてきたことをそのまま話すだけで、考えが進むことがあります。終わりの画面の「コーチに送るまとめ」で、一歩とやれたかを送れます。";
+
+// "YYYY-MM-DD" を日の通し番号にする。日付として読めなければ null
+function dayNumber(s) {
+  const m = typeof s === "string" ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(s) : null;
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = Date.UTC(y, mo - 1, d);
+  const back = new Date(t);
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
+  return t / 86400000;
+}
+
+// 合図の一覧（miss → same_kind → gap の順）。無ければ []
+export function outsideTalkSignals(rounds, today) {
+  const out = [];
+  const recent = rounds.slice(-NUDGE_STREAK);
+  if (recent.length === NUDGE_STREAK) {
+    if (recent.every((r) => r.step_done === false)) out.push({ kind: "miss" });
+    const k = recent[0].concern_kind;
+    if (isConcernKind(k) && k !== "unknown" && recent.every((r) => r.concern_kind === k)) out.push({ kind: "same_kind", concern_kind: k });
+  }
+  const last = rounds.at(-1);
+  const from = dayNumber(last?.date);
+  const to = dayNumber(today);
+  if (from != null && to != null && to - from >= CHEER_GAP_DAYS) out.push({ kind: "gap", days: to - from });
+  return out;
+}
+
+// 同じ合図は、前に出してから3回たつまで出さない。間が空いた合図はまれなので、回が変われば出す（同じ回では一度だけ）
+export function nudgeToShow(signals, last, round) {
+  if (!last) return signals;
+  return signals.filter((s) => (s.kind === "gap"
+    ? !(last.round === round && last.kinds.includes("gap"))
+    : !(last.kinds.includes(s.kind) && round - last.round < NUDGE_STREAK)));
+}
+
+export function nudgeLines(signals) {
+  return signals.map((s) =>
+    s.kind === "miss" ? "ここ3回、決めた一歩が形になりにくい状態が続いています。一歩の大きさか場面が、今の状況と合っていないのかもしれません。"
+      : s.kind === "same_kind" ? `ここ3回、『${CONCERN_KINDS[s.concern_kind]}』が引っかかりに挙がっています。`
+        : `前回から${s.days}日空きました。間が空くのは、一人で回すのが難しくなっている合図のこともあります。`);
 }

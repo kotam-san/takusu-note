@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
-  quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, trailingDone, validateStore,
+  nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, trailingDone, validateStore,
 } from "../docs/core.js";
 import { CHEERS, CHEER_GAP_DAYS, DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
 
@@ -180,6 +180,81 @@ test("まとめ：文章を書かず中身だけ選んだときは、中身だ�
   assert.match(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "relation" }), /\n引っかかりの中身：関係・気持ちの行き違い$/);
   assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: "unknown" }), /引っかかり/);
   assert.doesNotMatch(roundSummary("社長", rounds, 0, { concern: true }, { concern: "", concern_kind: { toString: null } }), /引っかかり/);
+});
+
+// ---------------------------------------------------------------- 一人で回りにくくなった合図（Issue #44）
+
+const S = { A: 2, B: 2, C: 2, D: 2 };
+const r = (n, extra) => round(n, S, extra);
+
+test("合図：直近3回やれなかったで miss、途中に未確認があれば出ない", () => {
+  const miss = [1, 2, 3].map((n) => r(n, { step_done: false }));
+  assert.deepEqual(outsideTalkSignals(miss, "2026-10-16"), [{ kind: "miss" }]);
+  const gapped = [r(1, { step_done: false }), r(2, { step_done: null }), r(3, { step_done: false })];
+  assert.deepEqual(outsideTalkSignals(gapped, "2026-10-16"), []);
+  assert.deepEqual(outsideTalkSignals(miss.slice(0, 2), "2026-10-16"), []);
+});
+
+test("合図：同じ種類が3回で same_kind、unknown と無い回は数えない", () => {
+  const same = [1, 2, 3].map((n) => r(n, { concern_kind: "scope" }));
+  assert.deepEqual(outsideTalkSignals(same, "2026-10-16"), [{ kind: "same_kind", concern_kind: "scope" }]);
+  const unk = [1, 2, 3].map((n) => r(n, { concern_kind: "unknown" }));
+  assert.deepEqual(outsideTalkSignals(unk, "2026-10-16"), []);
+  const holes = [r(1, { concern_kind: "scope" }), r(2), r(3, { concern_kind: "scope" })];
+  assert.deepEqual(outsideTalkSignals(holes, "2026-10-16"), []);
+});
+
+test("合図：21日以上空いたら gap、20日・壊れた日付・未来の日付では出ない", () => {
+  const one = [r(1, { date: "2026-10-01" })];
+  assert.deepEqual(outsideTalkSignals(one, "2026-10-22"), [{ kind: "gap", days: 21 }]);
+  assert.deepEqual(outsideTalkSignals(one, "2026-10-21"), []);
+  assert.deepEqual(outsideTalkSignals([r(1, { date: "2026-13-99" })], "2026-10-22"), []);
+  assert.deepEqual(outsideTalkSignals(one, "2026-09-01"), []);
+  assert.deepEqual(outsideTalkSignals([], "2026-10-22"), []);
+});
+
+test("合図：今までの記録（新しい欄なし）では出ず、記録も読める", () => {
+  const old = { ...emptyStore(), rounds: [1, 2, 3].map((n) => r(n)) };
+  delete old.outside_nudge;
+  assert.equal(validateStore(old), old);
+  assert.deepEqual(outsideTalkSignals(old.rounds, "2026-10-16"), []);
+});
+
+test("記録の検証：concern_kind と outside_nudge", () => {
+  const ok = { ...emptyStore(), rounds: [r(1, { concern_kind: "way" })], outside_nudge: { round: 4, kinds: ["miss", "gap"] } };
+  assert.equal(validateStore(ok), ok);
+  assert.equal(validateStore({ ...ok, rounds: [r(1, { concern_kind: "" })] }), null);
+  assert.equal(validateStore({ ...ok, rounds: [r(1, { concern_kind: "zzz" })] }), null);
+  assert.equal(validateStore({ ...ok, outside_nudge: { round: 0, kinds: [] } }), null);
+  assert.equal(validateStore({ ...ok, outside_nudge: { round: 2, kinds: ["boss"] } }), null);
+  assert.equal(validateStore({ ...ok, outside_nudge: null }).outside_nudge, null);
+});
+
+test("案内：同じ合図は3回たつまで出さず、gap は毎回出す", () => {
+  const sig = [{ kind: "miss" }, { kind: "gap", days: 30 }];
+  assert.deepEqual(nudgeToShow(sig, null, 5), sig);
+  assert.deepEqual(nudgeToShow(sig, { round: 4, kinds: ["miss"] }, 5), [{ kind: "gap", days: 30 }]);
+  assert.deepEqual(nudgeToShow(sig, { round: 2, kinds: ["miss"] }, 5), sig);
+});
+
+test("案内の文面：合図ごとの1行", () => {
+  assert.deepEqual(nudgeLines([{ kind: "same_kind", concern_kind: "scope" }, { kind: "gap", days: 23 }]), [
+    "ここ3回、『どこまで任せるかの線引き』が引っかかりに挙がっています。",
+    "前回から23日空きました。間が空くのは、一人で回すのが難しくなっている合図のこともあります。",
+  ]);
+  assert.match(nudgeLines([{ kind: "miss" }])[0], /^ここ3回、決めた一歩が形になりにくい状態が続いています。/);
+});
+
+test("案内：間が空いた合図も、同じ回の中では一度だけ", () => {
+  const sig = [{ kind: "gap", days: 30 }];
+  assert.deepEqual(nudgeToShow(sig, { round: 5, kinds: ["gap"] }, 5), []);
+  assert.deepEqual(nudgeToShow(sig, { round: 4, kinds: ["gap"] }, 5), sig);
+});
+
+test("記録の検証：concern_kind が null の回は、無いのと同じに通す", () => {
+  const s = { ...emptyStore(), rounds: [r(1, { concern_kind: null })] };
+  assert.equal(validateStore(s), s);
+  assert.deepEqual(outsideTalkSignals(s.rounds, "2026-10-16"), []);
 });
 
 // ---------------------------------------------------------------- 問いの答え（1問ずつ答える画面）

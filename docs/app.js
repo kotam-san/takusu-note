@@ -2,8 +2,8 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
-  makeBackup, memoEntries, memoOf, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, BACKUP_MAX_CHARS, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  makeBackup, memoEntries, memoOf, nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
@@ -480,6 +480,7 @@ function showQuiz(resumed = false) {
   const startNotes = resumed ? [] : roundStartNotes(state.store.rounds); // 回の最初の問いに、一度だけ出す一言
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
+  let nudge = resumed ? null : outsideNudgeCard(round, () => { nudge = null; });
 
   // 1問ずつの順番。最後に「ひとこと／引っかかり」の画面が付く
   const steps = quizOrder(deepList.length).map((step) => step.type === "fixed"
@@ -544,6 +545,7 @@ function showQuiz(resumed = false) {
     const head = (title) => [
       note,
       h("h1", {}, `${ROLE_NAME[role]}・${round} 回目`),
+      i === 0 ? nudge : null,
       h("div", { class: "progress" },
         h("span", {}, title),
         h("progress", { max: String(total + 1), value: String(i + 1), "aria-label": "進み具合" })),
@@ -640,6 +642,23 @@ function showQuiz(resumed = false) {
   if (resumed) answers = answersFromQuiz(draft.quiz, deepList.length, round, answers);
   else capture();
   render(firstOpenStep(answers, deepList.length), null, resumed ? resumedNote() : null);
+}
+
+// 一人で回りにくくなった合図が出ていれば、コーチ（いなければ話せる相手）に話すことを勧めるカード。
+// 出した時点で記録に残し、同じ合図はしばらく出さない（nudgeToShow）。保存できなくても問いは続ける
+function outsideNudgeCard(round, onClose) {
+  const signals = nudgeToShow(outsideTalkSignals(state.store.rounds, localDate()), state.store.outside_nudge, round);
+  if (!signals.length) return null;
+  state.store.outside_nudge = { round, kinds: signals.map((s) => s.kind) };
+  save().catch(() => {});
+  const ok = h("button", {}, "わかりました");
+  const card = h("section", { class: "card", "aria-label": NUDGE_TITLE },
+    h("h2", {}, NUDGE_TITLE),
+    ...nudgeLines(signals).map((line) => h("p", {}, line)),
+    h("p", { class: "notice" }, NUDGE_BODY),
+    h("div", { class: "row" }, ok));
+  ok.addEventListener("click", () => { card.remove(); onClose(); });
+  return card;
 }
 
 // ---------------------------------------------------------------- 4. 見立てと学び、3分コーチング
@@ -753,7 +772,8 @@ function showSteps(resumed = false) {
     c.date = localDate();
     c.step = step.slice(0, 80);
     const lesson = clipLesson(c.diagnosis?.lesson);
-    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}), ...(c.memos ? { memos: c.memos } : {}) });
+    const kind = typeof c.concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, c.concern_kind) ? c.concern_kind : null; // 選ばなかった回は書かない
+    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}), ...(c.memos ? { memos: c.memos } : {}), ...(kind ? { concern_kind: kind } : {}) });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
     state.store.next_examples = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.coaching.fixed_examples[k].slice(0, 120)]));
     const ok = await save();
