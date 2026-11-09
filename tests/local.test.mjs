@@ -294,6 +294,26 @@ test("記録：引っかかりの中身は、本人が選んだときだけ1行�
   assert.doesNotMatch(fs.readFileSync(path.join(DATA, "rounds", none.file), "utf8"), /中身：/);
 });
 
+test("記録：各問いのメモ（3回目から）は、書いた回だけ「各問いのメモ」に残し、壊れた形や長すぎる文は切る", async () => {
+  const memos = {
+    fixed: { A: "口を出しそうになったが\n一度こらえた", D: "", X: "知らない軸" },
+    deep: [{ text: "任せる範囲を言葉にできた", memo: "朝会で伝えられた" }, { text: "空のメモ", memo: "" }, "壊れた形", null],
+  };
+  const one = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "memo1234", record: { ...record, round: 3, date: "2026-11-29", memos } } })).json();
+  const md = fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8");
+  assert.match(md, /## 各問いのメモ\n- 任せる・任される：口を出しそうになったが \/ 一度こらえた\n- 任せる範囲を言葉にできた：朝会で伝えられた\n\n## 見立て/);
+  assert.doesNotMatch(md, /知らない軸|空のメモ|壊れた形/);
+  const long = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "memo5678", record: { ...record, round: 4, date: "2026-12-06", memos: { fixed: { B: "あ".repeat(900) }, deep: [] } } } })).json();
+  const longMd = fs.readFileSync(path.join(DATA, "rounds", long.file), "utf8");
+  assert.match(longMd, new RegExp(`- 社長がいなくても決まるか：${"あ".repeat(400)}\n`));
+  assert.doesNotMatch(longMd, /あ{401}/);
+  // メモが無い回・形が違う回は、見出しごと出さない
+  for (const [id, m] of [["memo9001", undefined], ["memo9002", { fixed: {}, deep: [] }], ["memo9003", "メモ"], ["memo9004", { fixed: "x", deep: "y" }]]) {
+    const out = await (await req("/api/record", { method: "POST", body: { role: "leader", round_id: id, record: { ...record, memos: m } } })).json();
+    assert.doesNotMatch(fs.readFileSync(path.join(DATA, "rounds", out.file), "utf8"), /各問いのメモ/, id);
+  }
+});
+
 test("記録の id・日付・回が違えば 400", async () => {
   for (const body of [
     { role: "ceo", round_id: "../x", record },

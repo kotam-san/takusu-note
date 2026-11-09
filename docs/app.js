@@ -2,12 +2,12 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, NUDGE_BODY, NUDGE_TITLE, clipLesson, draftMatches, emptyStore, localDate, nudgeLines, nudgeToShow, outsideTalkSignals,
-  roundSummary, seriesByAxis, stepDoneRate, stepMiss, validateStore,
+  AXIS_KEYS, BACKUP_MAX_CHARS, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  makeBackup, memoEntries, memoOf, nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
 import {
-  AXIS_NAMES, CONCERN_KINDS, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, FIRST_DEEP_PICK, firstRound, fixedFor,
+  AXIS_NAMES, CONCERN_KINDS, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE, SCALE, STEP_MISS_REASONS, STEP_NOTE_MAX, FIRST_DEEP_PICK, firstRound, fixedFor,
 } from "./questions.js";
 
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -48,7 +48,12 @@ function where(name, questions = []) {
 }
 
 function screen(...nodes) {
-  app.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false), ...(HAND ? [feedbackBox()] : []), footer());
+  place(nodes, HAND ? feedbackBox() : null);
+}
+
+// 画面を入れ替える。box（手元モードの感想欄）を渡すと、それをそのまま残す
+function place(nodes, box = null) {
+  app.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false), ...(box ? [box] : []), footer());
   window.scrollTo({ top: 0 });
 }
 
@@ -61,6 +66,11 @@ function footer() {
   return h("footer", {},
     "試作版です。答えは診断のために AI（Claude）へ送られますが、サーバーには保存しません。記録はこのブラウザの中だけに残ります。",
     h("br"), "掲載の回答例はすべて架空です。");
+}
+
+// 節目の一言（続けるためのはげまし）。無いときは何も出さない
+function cheerBox(notes) {
+  return notes.length ? h("div", { class: "cheer" }, notes.map((t) => h("p", {}, t))) : null;
 }
 
 function errorBox(msg) {
@@ -132,7 +142,8 @@ function clearDraft(role = state.role) {
 }
 
 // 今の回の深掘りの問い（回答画面と、下書きが合うかの判定で同じものを使う）
-const quizDeep = () => state.store.next_deep ?? QUESTIONS[state.role].deep;
+// 今の回に出す深掘りの問い。回を重ねるごとに増える（deepForRound）
+const quizDeep = () => deepForRound(state.store.next_deep ?? QUESTIONS[state.role].deep, state.store.rounds.length + 1);
 
 // 下書きのいちばん先まで進んだ画面を開き直す。開けなければ捨ててホームへ
 function resumeDraft(saved) {
@@ -157,6 +168,26 @@ function resumedNote() {
     h("p", { class: "notice", style: "margin:0 0 10px" }, "途中から再開しました。入力していた内容を戻しています。"),
     h("button", { onclick: () => { clearDraft(); state.current = null; showHome(); } }, "最初からやり直す"));
 }
+
+// 途中の回をやめて、ホーム（はじめての回ならはじめの画面）へ戻る。入力と AI の返事は下書きに残り、
+// 次に開くと続きから始められる。何も答えていないときは残さない
+function leaveRound(untouched = false) {
+  if (untouched) clearDraft();
+  state.current = null;
+  if (state.store.rounds.length) showHome();
+  else showStart();
+}
+
+function leaveButton(isUntouched = () => false) {
+  return h("p", { class: "leave" },
+    h("button", { class: "quiet", onclick: () => leaveRound(isUntouched()) }, state.store.rounds.length ? "ホームへ戻る" : "はじめに戻る"));
+}
+
+// 続きがある途中の回（ホームのボタンの文と、開く先の判定で同じものを使う）
+const resumableDraft = () => {
+  const saved = readDraft(state.role);
+  return draftMatches(saved, state.store.rounds, quizDeep().map((d) => d.text)) ? saved : null;
+};
 
 // ---------------------------------------------------------------- AI を呼ぶ
 
@@ -271,13 +302,14 @@ function showHome() {
   screen(
     h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
+    cheerBox(homeNotes(rounds)),
     growthCard(),
     h("div", { class: "row" },
-      h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を始める`),
+      h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を${resumableDraft() ? "続ける" : "始める"}`),
       h("button", { onclick: showStart }, "立場を選び直す"),
       h("button", { onclick: showProfile }, "プロフィールを直す"),
     ),
-    h("p", {}, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
+    h("p", { class: "more" }, h("a", { href: "./how.html" }, "記録がどう積み上がり、何を手がかりに問いが変わるのかを図で見る")),
   );
 }
 
@@ -306,7 +338,7 @@ function showProfile() {
   const syncOther = () => (otherRow.hidden = app.querySelector("input[name=p-industry]:checked")?.value !== "other");
   // 1回目だけ、引っかかりの「種類」を選ぶ（任意）。文章で書くのは、問いに答えたあとの「ひとこと」でよい
   const concernKinds = first
-    ? h("div", { class: "steps", role: "radiogroup", "aria-label": "いま引っかかっていることの種類（任意）" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
+    ? h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "いま引っかかっていることの種類（任意）" }, Object.entries(CONCERN_KINDS).map(([value, label]) =>
       h("label", {}, h("input", { type: "radio", name: "p-concern-kind", value, checked: state.store.first_concern_kind === value }), h("span", {}, label))))
     : null;
   const err = h("div");
@@ -350,6 +382,7 @@ function showProfile() {
       concernKinds) : null,
     h("div", { class: "row" }, submit, first ? null : h("button", { onclick: showHome }, "やめる")),
     err,
+    first && !HAND ? restoreCard() : null,
   );
   syncOther();
 }
@@ -371,6 +404,8 @@ async function makeFirstRound(role, profile, concern, kind) {
 // ---------------------------------------------------------------- 3. 問い
 
 function startRound() {
+  const saved = resumableDraft();
+  if (saved && resumeDraft(saved)) return; // やめて戻ってきた回は、続きから開く
   const last = state.store.rounds.at(-1);
   if (last && last.step && last.step_done == null) return askPrevStep(last);
   showQuiz();
@@ -399,7 +434,7 @@ function askPrevStep(last) {
   };
 
   // 「やれなかった」を押したら、理由（任意）と一言（任意）を聞いてから進む
-  const reasons = h("div", { class: "steps" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
+  const reasons = h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "やれなかった理由（任意）" }, Object.entries(STEP_MISS_REASONS).map(([value, label]) =>
     h("label", {}, h("input", { type: "radio", name: "miss-reason", value }), h("span", {}, label))));
   const note = h("input", { type: "text", maxlength: String(STEP_NOTE_MAX), placeholder: "ひとこと（任意）", "aria-label": "やれなかったことへのひとこと（任意）" });
   const next = h("button", { class: "primary" }, "次へ");
@@ -417,6 +452,7 @@ function askPrevStep(last) {
 
   where("前回の一歩", [last.step]);
   screen(
+    h("h1", {}, `${ROLE_NAME[state.role]}・${state.store.rounds.length + 1} 回目`),
     h("section", { class: "card" },
       h("h2", {}, "前回の一歩、やれましたか"),
       h("p", { class: "lesson" }, last.step),
@@ -425,6 +461,7 @@ function askPrevStep(last) {
       miss,
       err,
     ),
+    leaveButton(),
   );
 }
 
@@ -440,57 +477,34 @@ function showQuiz(resumed = false) {
     draft = { round, deep_texts: deepList.map((d) => d.text), stage: "quiz", quiz: {} };
     writeDraft();
   }
+  const startNotes = resumed ? [] : roundStartNotes(state.store.rounds); // 回の最初の問いに、一度だけ出す一言
   const examples = state.store.next_examples ?? q.examples;
   const adaptive = Boolean(state.store.next_deep);
   let nudge = resumed ? null : outsideNudgeCard(round, () => { nudge = null; });
 
   // 1問ずつの順番。最後に「ひとこと／引っかかり」の画面が付く
-  const steps = [
-    ...AXIS_KEYS.map((k) => ({ type: "fixed", k, name: `f-${k}`, text: fixedText[k] })),
-    ...deepList.map((d, i) => ({ type: "deep", d, name: `d-${i}`, text: d.text })),
-  ];
+  const steps = quizOrder(deepList.length).map((step) => step.type === "fixed"
+    ? { ...step, name: `f-${step.k}`, text: fixedText[step.k] }
+    : { ...step, d: deepList[step.i], name: `d-${step.i}`, text: deepList[step.i].text });
   const total = steps.length;
 
-  const answers = { fixed: {}, deep: [], concern: "", kind: "" };
-  const score = (step) => (step.type === "fixed" ? answers.fixed[step.k] : answers.deep[Number(step.name.slice(2))]) || null;
-  const setScore = (step, v) => { if (step.type === "fixed") answers.fixed[step.k] = v; else answers.deep[Number(step.name.slice(2))] = v; };
-  const valid = (v) => SCALE.some((s) => s.value === Number(v));
+  // 答えの持ち方と下書きへの出し入れは core.js（試験あり）
+  let answers = emptyAnswers();
 
   // 1回目は、引っかかりの種類をはじめに選んであるので、最後の画面は文章だけ（ひとこと・任意）
   const concernLabel = round === 1 ? "ひとこと（任意）" : "いま、いちばん引っかかっていること";
   if (round === 1) answers.concern = state.store.first_concern ?? ""; // 前の版で書いたものがあれば入れておき、直せるようにする
+  const score = (step) => scoreOf(answers, step);
   const kindPicked = () => (round === 1 ? state.store.first_concern_kind : answers.kind) ?? "";
 
   // 入力のたびに下書きへ（ページを離れても戻せるように）
   const capture = () => {
-    draft.quiz = {
-      fixed: Object.fromEntries(AXIS_KEYS.map((k) => [k, answers.fixed[k] || null])),
-      deep: deepList.map((_, i) => answers.deep[i] || null),
-      concern: answers.concern,
-      kind: kindPicked(),
-    };
+    draft.quiz = answersToQuiz(answers, deepList.length, kindPicked());
     writeDraft();
-  };
-  const restore = () => {
-    const d = draft.quiz ?? {};
-    AXIS_KEYS.forEach((k) => { if (valid(d.fixed?.[k])) answers.fixed[k] = Number(d.fixed[k]); });
-    deepList.forEach((_, i) => { if (valid(d.deep?.[i])) answers.deep[i] = Number(d.deep[i]); });
-    if (typeof d.concern === "string") answers.concern = d.concern;
-    if (round !== 1 && d.kind in CONCERN_KINDS) answers.kind = d.kind;
-  };
-
-  // 最初の未回答の問い。全部答えてあれば最後の画面
-  const firstOpen = () => {
-    const i = steps.findIndex((s) => !score(s));
-    return i < 0 ? total : i;
   };
 
   const fillSample = () => {
-    const s = SAMPLE[role];
-    AXIS_KEYS.forEach((k) => (answers.fixed[k] = Number(s.fixed[k])));
-    deepList.forEach((_, i) => (answers.deep[i] = Number(s.deep[i] ?? 2)));
-    answers.concern = s.concern;
-    if (round !== 1 && s.concern_kind in CONCERN_KINDS) answers.kind = s.concern_kind;
+    answers = sampleAnswers(SAMPLE[role], deepList.length, round, answers);
     capture();
     render(total, h("p", { class: "notice" }, "回答例（架空）を入れました。そのまま「AIの見立てを見る」を押してください。"));
   };
@@ -514,7 +528,8 @@ function showQuiz(resumed = false) {
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
-      state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId() };
+      const memos = roundMemos(answers, deepList); // 各問いのメモは AI に送らず、記録にだけ残す
+      state.current = { round, fixed, deep, concern: body.concern, concern_kind: body.concern_kind, diagnosis, history: body.history, prev_step: body.prev_step, id: roundId(), ...(memos ? { memos } : {}) };
       draft = { ...draft, stage: "diagnosis", current: state.current, pick: null, reply: "" };
       writeDraft();
       showDiagnosis();
@@ -522,6 +537,8 @@ function showQuiz(resumed = false) {
       err.append(errorBox(e.message));
     }
   });
+
+  const untouched = () => steps.every((step) => !score(step)); // 1問も答えていない（戻っても残すものがない）
 
   // i 番目の問い（total なら最後の画面）を出す
   const render = (i, notice = null, note = null) => {
@@ -540,7 +557,7 @@ function showQuiz(resumed = false) {
       concern.value = answers.concern;
       concern.addEventListener("input", () => { answers.concern = concern.value; capture(); });
       // 引っかかりの中身（任意）。選ばなければ空のまま送り、AI には「まだ分からない」として渡る
-      const kinds = h("div", { class: "steps", role: "radiogroup", "aria-label": "その難しさにいちばん近いもの（任意）" },
+      const kinds = h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "その難しさにいちばん近いもの（任意）" },
         Object.entries(CONCERN_KINDS).map(([value, label]) =>
           h("label", {}, h("input", { type: "radio", name: "concern-kind", value, checked: answers.kind === value }), h("span", {}, label))));
       kinds.addEventListener("change", (ev) => { answers.kind = ev.target.value; capture(); });
@@ -557,6 +574,7 @@ function showQuiz(resumed = false) {
         h("div", { class: "row" }, h("button", { onclick: () => render(total - 1) }, "戻る"), submit, sampleButton()),
         notice,
         err,
+        leaveButton(untouched),
       ];
     } else {
       const step = steps[i];
@@ -566,22 +584,32 @@ function showQuiz(resumed = false) {
         if (!score(step)) return err.replaceChildren(errorBox("ひとつ選んでください。"));
         go(i + 1);
       };
+      // メモ欄（任意）は3回目から。開いている間は、点を選んでも次へ進まない（書いてから「次へ」を押す）
+      let memoBox = null;
+      if (round >= MEMO_FROM_ROUND) {
+        const memo = h("textarea", { maxlength: String(MEMO_MAX), rows: "3", placeholder: "気づいたこと、次に試したいこと", "aria-label": "この問いのメモ（任意）" });
+        memo.value = memoOf(answers, step);
+        memo.addEventListener("input", () => { setMemo(answers, step, memo.value); capture(); });
+        memoBox = h("details", { class: "memo-box", open: memo.value !== "" }, h("summary", {}, "メモを書く（任意）"), memo);
+      }
+      const prevMemo = round >= MEMO_FROM_ROUND && step.type === "fixed" ? lastMemo(state.store.rounds, step.k) : null; // 毎回同じ問いなので、前に書いたメモを見せる
       const group = h("div", { class: "scale", role: "radiogroup", "aria-label": step.text },
         SCALE.map((s) =>
           h("label", {}, h("input", { type: "radio", name: step.name, value: s.value, checked: score(step) === s.value }), h("span", {}, s.label))));
       // 選んだ点は、矢印キーで選択が変わっただけでも残す（進まない）
-      group.addEventListener("change", (ev) => { setScore(step, Number(ev.target.value)); err.replaceChildren(); capture(); });
+      group.addEventListener("change", (ev) => { setScore(answers, step, Number(ev.target.value)); err.replaceChildren(); capture(); });
       // 進むのは、マウス・タッチのクリック（detail > 0）のときだけ。矢印キーやスペースの選択では進めない
       group.addEventListener("click", (ev) => {
         if (ev.detail === 0 || !group.isConnected) return;
         const input = ev.target.closest("label")?.querySelector("input") ?? (ev.target.matches("input") ? ev.target : null);
         if (!input) return;
-        setScore(step, Number(input.value));
-        go(i + 1);
+        setScore(answers, step, Number(input.value));
+        if (!memoBox?.open) go(i + 1);
       });
       const fixed = step.type === "fixed";
       nodes = [
         ...head(`${i + 1} / ${total}`),
+        i === 0 ? cheerBox(startNotes) : null,
         adaptive && !fixed ? h("p", { class: "lead" }, round === 1
           ? "深掘りの問いは、はじめに選んでもらった内容を受けて作っています。"
           : "深掘りの問いは、前回のあなたの答えを受けて変わっています。") : null,
@@ -592,23 +620,28 @@ function showQuiz(resumed = false) {
             !fixed && step.d.because ? h("div", { class: "because" }, `この問いにした理由：${step.d.because}`) : null,
             heading(step.text),
             fixed ? h("div", { class: "example" }, examples[step.k]) : null,
-            group)),
+            prevMemo ? h("p", { class: "notice", style: "margin:8px 0 0" }, `${prevMemo.round} 回目のメモ：${prevMemo.memo}`) : null,
+            group, memoBox)),
         h("div", { class: "row" },
           i > 0 ? h("button", { onclick: () => go(i - 1) }, "戻る") : null,
           h("button", { class: "primary", onclick: advance }, "次へ"),
           i === 0 ? sampleButton() : null),
         notice,
         err,
+        leaveButton(untouched),
       ];
     }
     where("問い", [...AXIS_KEYS.map((k) => fixedText[k]), ...deepList.map((d) => d.text)]);
-    screen(...nodes);
+    // 手元モードの感想欄は、問いを進めても作り直さない（書きかけを消さないため）
+    const box = HAND ? app.querySelector(':scope > .feedback[data-screen="問い"]') : null;
+    if (box) place(nodes, box);
+    else screen(...nodes);
     app.querySelector("h2[tabindex]")?.focus({ preventScroll: true });
   };
 
-  if (resumed) restore();
+  if (resumed) answers = answersFromQuiz(draft.quiz, deepList.length, round, answers);
   else capture();
-  render(firstOpen(), null, resumed ? resumedNote() : null);
+  render(firstOpenStep(answers, deepList.length), null, resumed ? resumedNote() : null);
 }
 
 // 一人で回りにくくなった合図が出ていれば、コーチ（いなければ話せる相手）に話すことを勧めるカード。
@@ -689,6 +722,7 @@ function showDiagnosis(resumed = false) {
   screen(
     resumed ? resumedNote() : null,
     h("h1", {}, `${round} 回目の見立て`),
+    cheerBox(diagnosisNotes(state.store.rounds, state.current)),
     h("section", { class: "card" }, h("h2", {}, "今の状態"), h("p", {}, d.summary), notes),
     h("section", { class: "card" },
       h("h2", {}, "今日の学び"),
@@ -700,10 +734,11 @@ function showDiagnosis(resumed = false) {
     h("section", { class: "card", onchange: capture, oninput: capture },
       h("h2", {}, "3分コーチング"),
       h("p", { class: "lesson" }, d.coaching_question),
-      h("div", { class: "steps" }, picks),
+      h("div", { class: "steps kinds", role: "radiogroup", "aria-label": "コーチングの問いへの答えの候補" }, picks),
       reply,
       h("div", { class: "row" }, send, fillSample),
       err),
+    leaveButton(),
   );
   if (resumed) {
     if (draft.pick != null) { const el = app.querySelector(`input[name=pick][value="${draft.pick}"]`); if (el) el.checked = true; }
@@ -714,9 +749,14 @@ function showDiagnosis(resumed = false) {
 function showSteps(resumed = false) {
   const c = state.current;
   const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く", "aria-label": "今週の一歩を自分で書く" });
+  const ownRadio = h("input", { type: "radio", name: "step", value: "own" });
+  // 選択肢のラジオは見えないので、「自分で書く」の欄を押す・文字を入れたら、その選択肢を選んだことにする
+  // （Tab で通り過ぎただけでは選ばない）
+  own.addEventListener("click", () => { ownRadio.checked = true; capture(); });
+  own.addEventListener("input", () => { ownRadio.checked = true; });
   const options = [...c.coaching.step_options.map((s, i) =>
     h("label", {}, h("input", { type: "radio", name: "step", value: String(i) }), h("span", {}, s))),
-    h("label", {}, h("input", { type: "radio", name: "step", value: "own" }), own)];
+    h("label", {}, ownRadio, own)];
   const err = h("div");
 
   const decide = h("button", { class: "primary" }, "これに決める");
@@ -733,7 +773,7 @@ function showSteps(resumed = false) {
     c.step = step.slice(0, 80);
     const lesson = clipLesson(c.diagnosis?.lesson);
     const kind = typeof c.concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, c.concern_kind) ? c.concern_kind : null; // 選ばなかった回は書かない
-    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}), ...(kind ? { concern_kind: kind } : {}) });
+    state.store.rounds.push({ round: c.round, date: c.date, scores, step: c.step, step_done: null, ...(lesson ? { lesson } : {}), ...(c.memos ? { memos: c.memos } : {}), ...(kind ? { concern_kind: kind } : {}) });
     state.store.next_deep = c.coaching.next_questions.map(({ axis, text, because }) => ({ axis, text, because }));
     state.store.next_examples = Object.fromEntries(AXIS_KEYS.map((k) => [k, c.coaching.fixed_examples[k].slice(0, 120)]));
     const ok = await save();
@@ -755,8 +795,10 @@ function showSteps(resumed = false) {
     resumed ? resumedNote() : null,
     h("h1", {}, "今週の一歩を決める"),
     h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.coaching.reflection)),
-    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"), options,
+    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"),
+      h("div", { class: "kinds", role: "radiogroup", "aria-label": "今週の一歩" }, options),
       h("div", { class: "row" }, decide), err),
+    leaveButton(),
   );
   if (resumed) {
     if (draft.step != null) { const el = app.querySelector(`input[name=step][value="${draft.step}"]`); if (el) el.checked = true; }
@@ -770,6 +812,7 @@ function showDone(saved) {
   screen(
     h("h1", {}, `${c.round} 回目、おつかれさまでした`),
     saved ? null : errorBox("このブラウザに記録を保存できませんでした（プライベートブラウズでは残りません）。"),
+    cheerBox([stepDecidedNote()]),
     HAND ? recordBox(c) : null,
     h("section", { class: "card" },
       h("h2", {}, "コーチに送るまとめ"),
@@ -792,6 +835,7 @@ function growthCard(withPast = true) {
   if (!rounds.length) return null;
   const rate = stepDoneRate(rounds);
   const lessons = rounds.filter((r) => r.lesson).reverse();
+  const memos = memoEntries(rounds);
 
   const reset = () => {
     if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。消すには「OK」、やめるには「キャンセル」を押してください。`)) return;
@@ -809,14 +853,97 @@ function growthCard(withPast = true) {
         rounds.map((r) => h("tr", {}, h("td", {}, `${r.round}回目（${r.date}）`), AXIS_KEYS.map((k) => h("td", {}, r.scores[k])))))),
     lessons.length ? h("h3", {}, "これまでの学び") : null,
     lessons.map((r) => h("details", { class: "learned" }, h("summary", {}, `${r.round}回目：${r.lesson.title}`), h("p", {}, r.lesson.body))),
+    memos.length ? h("h3", {}, "これまでのメモ") : null,
+    memos.map((e) => h("details", { class: "learned" },
+      h("summary", {}, `${e.round}回目（${e.date}）：メモ ${e.items.length} 件`),
+      h("ul", { class: "memos" }, e.items.map((it) => h("li", {}, h("b", {}, it.label), h("span", { class: "memo-text" }, it.memo)))))),
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）"
         : r.step_done === false ? `（やれなかった${r.step_reason ? `・${STEP_MISS_REASONS[r.step_reason]}` : ""}）` : "（次の回で確認）"))),
     withPast ? pastSummaries(rounds) : null,
-    // 手元モードの記録はファイルなので、画面からは消さない
-    HAND ? null : h("div", { class: "row", style: "margin-top:20px" }, h("button", { onclick: reset }, "記録をすべて消す")),
+    // 手元モードの記録はファイルなので、画面からは消さず、書き出しも読み込みもしない
+    HAND ? null : backupControls(h("button", { onclick: reset }, "記録をすべて消す")),
   );
+}
+
+// ---------------------------------------------------------------- 記録のバックアップ（公開バージョン）
+// 記録はこのブラウザの中にしか無いので、ファイルに書き出して取っておき、読み込んで戻せるようにする
+
+const BACKUP_ERRORS = {
+  size: () => "ファイルが大きすぎます。託すノートで書き出したファイルを選んでください。",
+  format: () => "託すノートで書き出した記録のファイルではありません。",
+  role: (r) => `${ROLE_NAME[r.fileRole]}の記録のファイルです。いまは${ROLE_NAME[state.role]}を選んでいます。はじめの画面から${ROLE_NAME[r.fileRole]}を選び直して、読み込んでください。`,
+  shape: () => "この記録は読み込めませんでした（形が合いません）。託すノートの新しい版で書き出したものかもしれません。",
+};
+
+// 「記録を書き出す」と「記録を読み込む」のボタン（と、結果を伝える欄）。extra は同じ行に並べるボタン
+function backupControls(...extra) {
+  const status = h("p", { class: "notice", role: "status" });
+  const exportButton = h("button", { onclick: () => exportRecord(status) }, "記録を書き出す");
+  return h("div", { style: "margin-top:20px" },
+    h("p", { class: "notice" }, "記録はこのブラウザの中にだけあります。端末を替える前や、サイトのデータを消す前に、書き出しておくと戻せます。"),
+    h("div", { class: "row" }, exportButton, importButton("記録を読み込む", status), ...extra),
+    status);
+}
+
+// はじめの画面（記録が空のとき）の入口。端末を替えたときなど、書き出したファイルから続きを始められる
+function restoreCard() {
+  const status = h("p", { class: "notice", role: "status" });
+  return h("section", { class: "card" },
+    h("h2", {}, "以前の記録がありますか"),
+    h("p", { class: "notice" }, "別の端末や、データを消す前に「記録を書き出す」で取っておいたファイルがあれば、読み込んで続きから始められます。"),
+    h("div", { class: "row" }, importButton("以前の記録を読み込む", status)),
+    status);
+}
+
+function exportRecord(status) {
+  const name = `takusu-note-${state.role}-${localDate()}.json`;
+  const blob = new Blob([JSON.stringify(makeBackup(state.role, state.store), null, 1)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = h("a", { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  status.textContent = `「${name}」を書き出しました。答えやメモが入っているので、人に見せない場所に保管してください。`;
+}
+
+// 書き出したファイルを選んで、記録を置き換える。いまの記録があるときは、確かめてから
+function importButton(label, status) {
+  const input = h("input", { type: "file", accept: "application/json,.json", hidden: true });
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    input.value = ""; // 同じファイルをもう一度選べるように
+    if (!file) return;
+    status.textContent = "";
+    let text;
+    try {
+      if (file.size > BACKUP_MAX_CHARS * 3) throw new Error("size");
+      text = await file.text();
+    } catch {
+      status.textContent = file.size > BACKUP_MAX_CHARS * 3 ? BACKUP_ERRORS.size() : "ファイルを読めませんでした。";
+      return;
+    }
+    const r = readBackup(text, state.role);
+    if (r.error) {
+      status.textContent = BACKUP_ERRORS[r.error](r);
+      return;
+    }
+    const now = state.store.rounds.length;
+    if (now && !confirm(`いまの記録（${now}回分）を、ファイルの記録（${r.store.rounds.length}回分）で置き換えます。元に戻せません。置き換えるには「OK」、やめるには「キャンセル」を押してください。`)) return;
+    const before = state.store;
+    state.store = r.store;
+    if (!(await save())) {
+      state.store = before;
+      status.textContent = "記録を保存できませんでした。ブラウザの保存領域がいっぱいかもしれません。";
+      return;
+    }
+    clearDraft(); // 置き換える前の記録の、途中の回は開かない
+    state.current = null;
+    showHome();
+  });
+  return h("span", {}, input, h("button", { onclick: () => input.click() }, label));
 }
 
 // 過去の回のまとめ。回を選ぶと、その回の記録に残っているもの（一歩・結果・理由・点数・学び）でまとめを作る
@@ -967,7 +1094,7 @@ function recordBox(c) {
         role: state.role, round_id: c.id,
         record: {
           round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
-          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step,
+          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step, memos: c.memos,
         },
       });
       status.textContent = `この回の記録を残しました（rounds/${out.file}）。答えたことは「わたしのこと.md」にも足しました。`;
@@ -1006,7 +1133,7 @@ function feedbackBox() {
       status.textContent = `書き残せませんでした：${e.message}`;
     }
   }));
-  return h("section", { class: "card feedback" },
+  return h("section", { class: "card feedback", "data-screen": name },
     h("h2", {}, "気になったこと（手元モード）"),
     pick, text, h("div", { class: "row" }, sendButton), status);
 }

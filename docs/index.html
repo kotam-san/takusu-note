@@ -9,7 +9,7 @@
 :root{
   color-scheme:light;
   --bg:#faf5ec;--card:#fffdf8;--ink:#3a2f27;--sub:#6e6156;--muted:#766a5f;--line:#eadfce;
-  --accent:#b4562c;--accent-ink:#ffffff;--chip:#f8ebdf;--warn-bg:#fdecec;--warn:#b42318;--ok:#1b7a4b;
+  --accent:#b4562c;--accent-ink:#ffffff;--link:#ad522a;--chip:#f8ebdf;--warn-bg:#fdecec;--warn:#b42318;--ok:#1b7a4b;
   --surface-1:#fdf9f2;--grid:#efe6d8;
   --series-A:#2a78d6;--series-B:#eb6834;--series-C:#1baf7a;--series-D:#eda100;
 }
@@ -22,6 +22,14 @@ h2{font-size:19px;line-height:1.5;margin:0 0 12px}
 h3{font-size:14px;color:var(--sub);margin:20px 0 6px;font-weight:600}
 p{margin:0 0 12px}
 .lead{color:var(--sub)}
+.more{margin-top:24px}
+.cheer{background:var(--chip);border-left:3px solid var(--accent);border-radius:10px;padding:10px 14px;margin:12px 0}
+.cheer p{margin:0;font-size:15px;line-height:1.7}
+.cheer p + p{margin-top:6px}
+.memo-box{margin-top:14px}
+.memo-box summary{color:var(--link);cursor:pointer;padding:6px 0}
+.memo-box textarea{margin-top:6px;min-height:80px}
+a{color:var(--link)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}
 .flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:16px 0;padding:0;list-style:none}
 .flow li{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.6}
@@ -31,6 +39,8 @@ button{font:inherit;cursor:pointer;border-radius:10px;padding:10px 18px;border:1
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button:disabled{opacity:.5;cursor:wait}
 button[aria-pressed=true]{background:var(--chip);border-color:var(--accent)}
+button.quiet{border:0;background:none;color:var(--link);text-decoration:underline;padding:12px 0}
+.leave{margin:4px 0 0}
 .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .role{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .role button{padding:18px 12px;text-align:left;line-height:1.6}
@@ -40,8 +50,8 @@ button[aria-pressed=true]{background:var(--chip);border-color:var(--accent)}
 .q .axis{font-size:12px;color:var(--sub)}
 .q .because{font-size:13px;color:var(--accent);margin:2px 0 6px}
 .q .example{font-size:13px;color:var(--sub);margin:4px 0 2px}
-.progress{display:flex;align-items:center;gap:12px;margin:8px 0 0;font-size:14px;color:var(--sub)}
-.progress progress{flex:1;height:8px;accent-color:var(--accent)}
+.progress{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:8px 0 0;font-size:14px;color:var(--sub)}
+.progress progress{flex:1 1 8em;min-width:8em;height:8px;accent-color:var(--accent)}
 .q h2{margin:6px 0 8px}
 .q h2:focus{outline:none}
 .scale{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
@@ -66,7 +76,12 @@ textarea{width:100%;min-height:96px;font:inherit;border:1px solid var(--line);bo
 .choices button.right{border-color:var(--ok);color:var(--ok);font-weight:600}
 .choices button.wrong{border-color:var(--warn);color:var(--warn)}
 .steps label{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer}
-.steps input[type=text]{flex:1;font:inherit;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink)}
+.kinds input[type=radio]{position:absolute;opacity:0;pointer-events:none}
+.kinds label:has(input:checked){background:var(--chip);border-color:var(--accent)}
+.kinds label:has(input:checked) span{font-weight:700}
+.kinds label:has(input:focus-visible){outline:2px solid var(--accent)}
+.kinds input[type=text]:focus{outline:none}  /* 枠は label に出る */
+.steps input[type=text]{flex:1;min-width:0;font:inherit;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink)}
 .axes{background:var(--surface-1);border-radius:10px;padding:6px 12px}
 .axrow{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr) 5.5em;align-items:center;gap:4px 12px;padding:6px 0;border-top:1px solid var(--line)}
 .axrow:first-child{border-top:0}
@@ -83,6 +98,11 @@ svg.spark{display:block;width:100%;height:auto;overflow:visible}
 details.learned{border-top:1px solid var(--line);padding:6px 0}
 details.learned summary{cursor:pointer}
 details.learned p{margin:6px 0 0;font-size:15px}
+.memos{margin:6px 0 0;padding-left:0;list-style:none;font-size:15px}
+.memos li{padding:6px 0;border-top:1px solid var(--line)}
+.memos li:first-child{border-top:0}
+.memos b{display:block;font-size:13px;color:var(--sub);font-weight:600}
+.memo-text{display:block;white-space:pre-wrap}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{border-top:1px solid var(--line);padding:6px 4px;text-align:center}
 th:first-child,td:first-child{text-align:left}
@@ -95,6 +115,11 @@ footer{color:var(--muted);font-size:12px;margin-top:40px}
 <main id="app">
   <noscript>この画面は JavaScript で動きます。</noscript>
 </main>
-<script type="module" src="./app.js"></script>
+<!-- JS は版つきの URL で読む（更新のとき、新旧の JS が混ざらないように）。版は node scripts/stamp-version.mjs で更新する。
+     import map に対応しない古いブラウザでは、版なしの読み込みで今まで通り動く -->
+<script type="importmap">
+{"imports":{"./core.js":"./core.js?v=5dc9a5f9","./profile.js":"./profile.js?v=5dc9a5f9","./questions.js":"./questions.js?v=5dc9a5f9"}}
+</script>
+<script type="module" src="./app.js?v=5dc9a5f9"></script>
 </body>
 </html>

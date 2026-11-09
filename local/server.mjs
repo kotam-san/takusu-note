@@ -204,6 +204,7 @@ function roundMarkdown(r, role, roundId) {
     // 中身は本人が選んだときだけ（選ばなかったことと「まだ分からない」を分けて残す）
     ...(Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? [`中身：${CONCERN_KINDS[r.concern_kind]}`] : []), // 文章を書かず、中身だけ選んだ回も残す
     "",
+    ...memoLines(r.memos),
     "## 見立て",
     str(d.summary, 1000),
     ...(Array.isArray(d.axis_notes) ? d.axis_notes.slice(0, 4) : []).map((n) => `- ${AXIS_NAMES[n?.axis] ?? "?"}：${str(n?.note, 400)}`),
@@ -225,6 +226,14 @@ function roundMarkdown(r, role, roundId) {
     "",
   ];
   return lines.join("\n");
+}
+
+// 各問いのメモ（3回目から・本人が書いたときだけ）。画面から来た形（{ fixed: { A: 文 }, deep: [{ text, memo }] }）を、長さを切って読む
+function memoLines(m) {
+  if (!m || typeof m !== "object") return [];
+  const fixed = ["A", "B", "C", "D"].filter((k) => str(m.fixed?.[k], 400)).map((k) => `- ${AXIS_NAMES[k]}：${oneLine(str(m.fixed[k], 400))}`);
+  const deep = (Array.isArray(m.deep) ? m.deep.slice(0, 8) : []).filter((q) => str(q?.memo, 400)).map((q) => `- ${str(q.text, 120)}：${oneLine(str(q.memo, 400))}`);
+  return fixed.length || deep.length ? ["## 各問いのメモ", ...fixed, ...deep, ""] : [];
 }
 
 // 「前回の一歩 → 結果（理由：…／ひとこと：…）」。理由と一言はやれなかったときだけ（stepMiss で候補と長さもそろえる）
