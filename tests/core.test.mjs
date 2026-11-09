@@ -244,3 +244,15 @@ test("案内の文面：合図ごとの1行", () => {
   ]);
   assert.match(nudgeLines([{ kind: "miss" }])[0], /^ここ3回、決めた一歩が形になりにくい状態が続いています。/);
 });
+
+test("案内：間が空いた合図も、同じ回の中では一度だけ", () => {
+  const sig = [{ kind: "gap", days: 30 }];
+  assert.deepEqual(nudgeToShow(sig, { round: 5, kinds: ["gap"] }, 5), []);
+  assert.deepEqual(nudgeToShow(sig, { round: 4, kinds: ["gap"] }, 5), sig);
+});
+
+test("記録の検証：concern_kind が null の回は、無いのと同じに通す", () => {
+  const s = { ...emptyStore(), rounds: [r(1, { concern_kind: null })] };
+  assert.equal(validateStore(s), s);
+  assert.deepEqual(outsideTalkSignals(s.rounds, "2026-10-16"), []);
+});

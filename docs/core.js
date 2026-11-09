@@ -26,7 +26,7 @@ export function validateStore(data) {
     if (![true, false, null, undefined].includes(r.step_done)) return null;
     if (r.lesson != null && !(isStr(r.lesson?.title, LESSON_TITLE_MAX) && isStr(r.lesson?.body, LESSON_BODY_MAX))) return null;
     if (!validMiss(r)) return null;
-    if (r.concern_kind !== undefined && !isConcernKind(r.concern_kind)) return null;
+    if (r.concern_kind != null && !isConcernKind(r.concern_kind)) return null; // null は無いのと同じ
   }
   if (data.next_deep != null) {
     if (!Array.isArray(data.next_deep) || data.next_deep.length > 8) return null;
@@ -207,10 +207,12 @@ export function outsideTalkSignals(rounds, today) {
   return out;
 }
 
-// 同じ合図は、前に出してから3回たつまで出さない。間が空いた合図はまれなので毎回出す
+// 同じ合図は、前に出してから3回たつまで出さない。間が空いた合図はまれなので、回が変われば出す（同じ回では一度だけ）
 export function nudgeToShow(signals, last, round) {
   if (!last) return signals;
-  return signals.filter((s) => s.kind === "gap" || !(last.kinds.includes(s.kind) && round - last.round < NUDGE_STREAK));
+  return signals.filter((s) => (s.kind === "gap"
+    ? !(last.round === round && last.kinds.includes("gap"))
+    : !(last.kinds.includes(s.kind) && round - last.round < NUDGE_STREAK)));
 }
 
 export function nudgeLines(signals) {
