@@ -25,7 +25,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/api/stats") {
         return json(await readStats(env), 200, cors);
       }
-      if (request.method !== "POST" || !["/api/start", "/api/diagnose", "/api/coach"].includes(url.pathname)) {
+      if (request.method !== "POST" || !["/api/start", "/api/diagnose", "/api/coach", "/api/reflect"].includes(url.pathname)) {
         return json({ error: "not_found" }, 404, cors);
       }
       if (!cors["Access-Control-Allow-Origin"]) return json({ error: "origin_not_allowed" }, 403, cors);
@@ -108,7 +108,7 @@ async function count(env, name) {
   await env.STATS.put(`total:${name}`, String(n + 1));
 }
 async function readStats(env) {
-  const names = ["rounds_profiled", "rounds_started", "rounds_completed", "rounds_returning", "step_done", "step_not_done"];
+  const names = ["rounds_profiled", "rounds_started", "rounds_completed", "rounds_returning", "step_done", "step_not_done", "rounds_short"];
   const v = {};
   for (const n of names) v[n] = env.STATS ? Number((await env.STATS.get(`total:${n}`)) || 0) : 0;
   const rate = (a, b) => (b ? Math.round((a / b) * 100) : null);

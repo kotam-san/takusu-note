@@ -12,7 +12,9 @@ process.stdin.on("end", () => {
   const qs = ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: `問い${axis}`, because: "理由" }));
   const qs3 = ["A", "B", "C"].map((axis) => ({ axis, text: `問い${axis}`, because: "理由" })); // 1回目は3問
   const ex = { A: "例a", B: "例b", C: "例c", D: "例d" };
-  const out = schema.required.includes("coaching_choices")
+  const out = schema.required.includes("organized")
+    ? { organized: { events: ["出来事"], did: ["やったこと"], insights: ["気づき"] }, reply: "受け止め", step_options: ["一歩1", "一歩2", "一歩3"] }
+    : schema.required.includes("coaching_choices")
     ? {
       summary: "見立て", axis_notes: ["A", "B", "C", "D"].map((axis) => ({ axis, note: "メモ" })),
       lesson: { axis: "A", title: "学び", body: "本文", check: { question: "確かめ", choices: ["1", "2", "3"], answer_index: 0, explanation: "説明" } },

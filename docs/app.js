@@ -2,7 +2,7 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, BACKUP_MAX_CHARS, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  AXIS_KEYS, BACKUP_MAX_CHARS, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
   makeBackup, memoEntries, memoOf, nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
@@ -149,7 +149,11 @@ const quizDeep = () => deepForRound(state.store.next_deep ?? QUESTIONS[state.rol
 function resumeDraft(saved) {
   try {
     draft = saved;
-    if (saved.stage === "quiz") showQuiz(true);
+    if (saved.kind === "short") {
+      state.current = saved.current ?? null;
+      if (saved.stage === "short_steps") showShortSteps(true);
+      else showReflect(true);
+    } else if (saved.stage === "quiz") showQuiz(true);
     else {
       state.current = saved.current;
       if (saved.stage === "steps") showSteps(true);
@@ -188,6 +192,19 @@ const resumableDraft = () => {
   const saved = readDraft(state.role);
   return draftMatches(saved, state.store.rounds, quizDeep().map((d) => d.text)) ? saved : null;
 };
+
+// AI に渡すこれまでの記録（直近12回）と前回の一歩。ショート回は点数の代わりに気づきを1つ添える
+function historyForAI() {
+  return state.store.rounds.slice(-12).map((r) => ({
+    round: r.round, date: r.date, step: r.step || "", step_done: r.step_done ?? null,
+    ...(isShort(r) ? { kind: "short", insight: r.reflection?.insights?.[0] ?? "" } : { scores: r.scores }),
+    ...(r.step_done === false && r.step_reason ? { step_reason: r.step_reason } : {}),
+  }));
+}
+function prevStepForAI() {
+  const last = state.store.rounds.at(-1);
+  return last?.step ? { text: last.step, done: last.step_done ?? null, ...stepMiss(last.step_done, last.step_reason, last.step_note) } : null;
+}
 
 // ---------------------------------------------------------------- AI を呼ぶ
 
@@ -303,9 +320,12 @@ function showHome() {
     h("h1", {}, `${ROLE_NAME[state.role]}の託すノート`),
     h("p", { class: "lead" }, `これまで ${rounds.length} 回。次は ${rounds.length + 1} 回目です。`),
     cheerBox(homeNotes(rounds)),
+    resumableDraft() ? null : h("p", { class: "notice" }, "問いに答える気分でないときは「振り返りだけ」で、前回から起きたこと・やったことを書いて、次の一歩を決められます。"),
     growthCard(),
     h("div", { class: "row" },
-      h("button", { class: "primary", onclick: startRound }, `${rounds.length + 1} 回目を${resumableDraft() ? "続ける" : "始める"}`),
+      h("button", { class: "primary", onclick: () => startRound() }, `${rounds.length + 1} 回目を${resumableDraft() ? "続ける" : "始める"}`),
+      // 途中の回があるときは、その続きだけを出す（どちらの回かは下書きが覚えている）
+      resumableDraft() ? null : h("button", { onclick: () => startRound("short") }, "振り返りだけ（短く）"),
       h("button", { onclick: showStart }, "立場を選び直す"),
       h("button", { onclick: showProfile }, "プロフィールを直す"),
     ),
@@ -403,15 +423,18 @@ async function makeFirstRound(role, profile, concern, kind) {
 
 // ---------------------------------------------------------------- 3. 問い
 
-function startRound() {
+// kind が "short" なら振り返りだけの回（1回目は振り返る前回が無いので、いつもの回）
+function startRound(kind = "full") {
   const saved = resumableDraft();
   if (saved && resumeDraft(saved)) return; // やめて戻ってきた回は、続きから開く
+  const short = kind === "short" && state.store.rounds.length >= 1;
+  const next = short ? () => showReflect() : () => showQuiz();
   const last = state.store.rounds.at(-1);
-  if (last && last.step && last.step_done == null) return askPrevStep(last);
-  showQuiz();
+  if (last && last.step && last.step_done == null) return askPrevStep(last, next);
+  next();
 }
 
-function askPrevStep(last) {
+function askPrevStep(last, then) {
   const err = h("div");
   let saving = false; // 「やれた」と「次へ」を続けて押しても、保存を重ねない
   // 結果・理由・一言はまとめて保存し、保存できなければ3つとも戻す。「やれた」なら理由と一言は持たない
@@ -430,7 +453,7 @@ function askPrevStep(last) {
       saving = false;
       return err.replaceChildren(saveFailed());
     }
-    showQuiz();
+    then();
   };
 
   // 「やれなかった」を押したら、理由（任意）と一言（任意）を聞いてから進む
@@ -518,13 +541,9 @@ function showQuiz(resumed = false) {
       err.append(errorBox("すべての問いに答えてください。"));
       return;
     }
-    const last = state.store.rounds.at(-1);
     const body = {
       role, round, fixed, deep, concern: answers.concern.trim(), profile: myProfile(),
-      concern_kind: kindPicked(),
-      history: state.store.rounds.slice(-12).map(({ round, date, scores, step, step_done, step_reason }) =>
-        ({ round, date, scores, step: step || "", step_done: step_done ?? null, ...(step_done === false && step_reason ? { step_reason } : {}) })),
-      prev_step: last?.step ? { text: last.step, done: last.step_done ?? null, ...stepMiss(last.step_done, last.step_reason, last.step_note) } : null,
+      concern_kind: kindPicked(), history: historyForAI(), prev_step: prevStepForAI(),
     };
     try {
       const diagnosis = await api("/api/diagnose", body);
@@ -746,23 +765,44 @@ function showDiagnosis(resumed = false) {
   }
 }
 
-function showSteps(resumed = false) {
-  const c = state.current;
+// 今週の一歩を選ぶ部品（いつもの回とショート回で同じ）。候補3つ＋自分で書く。
+// 選んだもの・書いたものは下書き（draft.step・draft.own）に残す
+function stepPicker(stepOptions, resumed) {
   const own = h("input", { type: "text", maxlength: "60", placeholder: "自分で書く", "aria-label": "今週の一歩を自分で書く" });
   const ownRadio = h("input", { type: "radio", name: "step", value: "own" });
+  const capture = () => {
+    draft.step = app.querySelector("input[name=step]:checked")?.value ?? null;
+    draft.own = own.value;
+    writeDraft();
+  };
   // 選択肢のラジオは見えないので、「自分で書く」の欄を押す・文字を入れたら、その選択肢を選んだことにする
   // （Tab で通り過ぎただけでは選ばない）
   own.addEventListener("click", () => { ownRadio.checked = true; capture(); });
   own.addEventListener("input", () => { ownRadio.checked = true; });
-  const options = [...c.coaching.step_options.map((s, i) =>
+  const options = [...stepOptions.map((s, i) =>
     h("label", {}, h("input", { type: "radio", name: "step", value: String(i) }), h("span", {}, s))),
     h("label", {}, ownRadio, own)];
+  const chosen = () => {
+    const v = app.querySelector("input[name=step]:checked")?.value;
+    return v === "own" ? own.value.trim() : stepOptions[Number(v)];
+  };
+  // 画面に置いたあとで呼ぶ（下書きの選択を戻す）
+  const restore = () => {
+    if (!resumed) return;
+    if (draft.step != null) { const el = app.querySelector(`input[name=step][value="${draft.step}"]`); if (el) el.checked = true; }
+    if (typeof draft.own === "string") own.value = draft.own;
+  };
+  return { options, capture, chosen, restore };
+}
+
+function showSteps(resumed = false) {
+  const c = state.current;
+  const picker = stepPicker(c.coaching.step_options, resumed);
   const err = h("div");
 
   const decide = h("button", { class: "primary" }, "これに決める");
   decide.addEventListener("click", () => busy(decide, "保存しています…", async () => {
-    const v = app.querySelector("input[name=step]:checked")?.value;
-    const step = v === "own" ? own.value.trim() : c.coaching.step_options[Number(v)];
+    const step = picker.chosen();
     if (!step) {
       err.replaceChildren(errorBox("今週の一歩を1つ選んでください。"));
       return;
@@ -785,29 +825,119 @@ function showSteps(resumed = false) {
     showDone(ok);
   }));
 
-  const capture = () => {
-    draft.step = app.querySelector("input[name=step]:checked")?.value ?? null;
-    draft.own = own.value;
-    writeDraft();
-  };
   where("今週の一歩", c.coaching.step_options);
   screen(
     resumed ? resumedNote() : null,
     h("h1", {}, "今週の一歩を決める"),
     h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.coaching.reflection)),
-    h("section", { class: "card steps", onchange: capture, oninput: capture }, h("h2", {}, "どれをやりますか"),
-      h("div", { class: "kinds", role: "radiogroup", "aria-label": "今週の一歩" }, options),
+    h("section", { class: "card steps", onchange: picker.capture, oninput: picker.capture }, h("h2", {}, "どれをやりますか"),
+      h("div", { class: "kinds", role: "radiogroup", "aria-label": "今週の一歩" }, picker.options),
       h("div", { class: "row" }, decide), err),
     leaveButton(),
   );
-  if (resumed) {
-    if (draft.step != null) { const el = app.querySelector(`input[name=step][value="${draft.step}"]`); if (el) el.checked = true; }
-    if (typeof draft.own === "string") own.value = draft.own;
+  picker.restore();
+}
+
+// ---------------------------------------------------------------- 振り返りだけの回（ショート回）
+// 問いには答えず、前回から起きたこと・やったことを書く → AI が整理し、一歩の候補を出す → 1つ選ぶ。
+// 点数・見立て・3分コーチングは無い。次の回の深掘りの問いも変えない
+
+function showReflect(resumed = false) {
+  const round = state.store.rounds.length + 1;
+  if (!resumed) {
+    draft = { round, kind: "short", deep_texts: quizDeep().map((d) => d.text), stage: "reflect", text: "" };
+    writeDraft();
   }
+  const text = h("textarea", { maxlength: String(REFLECT_TEXT_MAX), rows: "8", placeholder: "例：月曜の朝会を任せてみた。最初は口を出しそうになったが、最後まで聞けた", "aria-label": "前回から起きたこと・やったこと" });
+  text.value = typeof draft.text === "string" ? draft.text : "";
+  const left = h("p", { class: "notice", "aria-live": "polite" });
+  const showLeft = () => { left.textContent = `あと ${REFLECT_TEXT_MAX - text.value.length} 字`; };
+  text.addEventListener("input", () => { draft.text = text.value; writeDraft(); showLeft(); });
+  showLeft();
+  const err = h("div");
+  // 一人で回りにくくなった合図は、いつもの回と同じく回の最初に出す（気力の落ちた人ほど、こちらを選びやすいため）
+  const nudge = resumed ? null : outsideNudgeCard(round, () => {});
+
+  const send = h("button", { class: "primary" }, "整理する");
+  send.addEventListener("click", () => busy(send, "AIが読んでいます…（15秒ほど）", async () => {
+    err.replaceChildren();
+    const body = text.value.trim();
+    if (!body) return err.append(errorBox("前回から起きたこと・やったことを、ひとことでも書いてください。"));
+    const req = { role: state.role, round, text: body, profile: myProfile(), history: historyForAI(), prev_step: prevStepForAI() };
+    try {
+      const reflect = await api("/api/reflect", req);
+      state.current = { kind: "short", round, text: body, prev_step: req.prev_step, reflect, id: roundId() };
+      draft = { ...draft, stage: "short_steps", current: state.current, step: null, own: "" };
+      writeDraft();
+      showShortSteps();
+    } catch (e) {
+      err.append(errorBox(e.message)); // 書いた文はそのまま残る
+    }
+  }));
+
+  where("振り返り", ["前回から起きたこと・やったこと"]);
+  screen(
+    resumed ? resumedNote() : null,
+    h("h1", {}, `${ROLE_NAME[state.role]}・${round} 回目（振り返り）`),
+    cheerBox(resumed ? [] : roundStartNotes(state.store.rounds, true)),
+    nudge,
+    h("section", { class: "card" },
+      h("h2", {}, "前回から、どんなことがありましたか"),
+      h("p", { class: "notice" }, "起きたこと・やったこと・気づいたことを、思いつくまま書いてください。スマホなら、キーボードのマイクで話して入れられます。"),
+      text, left,
+      h("div", { class: "row" }, send), err),
+    leaveButton(() => !text.value.trim()),
+  );
+}
+
+// 整理の3つの種類（空の種類は出さない）
+const REFLECT_PARTS = [["events", "出来事"], ["did", "やったこと"], ["insights", "気づき"]];
+function reflectionList(o) {
+  return REFLECT_PARTS.filter(([k]) => o?.[k]?.length).map(([k, name]) =>
+    h("div", { class: "q" }, h("div", { class: "axis" }, name), h("ul", {}, o[k].map((t) => h("li", {}, t)))));
+}
+
+function showShortSteps(resumed = false) {
+  const c = state.current;
+  const picker = stepPicker(c.reflect.step_options, resumed);
+  const err = h("div");
+
+  const decide = h("button", { class: "primary" }, "これに決める");
+  decide.addEventListener("click", () => busy(decide, "保存しています…", async () => {
+    const step = picker.chosen();
+    if (!step) return err.replaceChildren(errorBox("今週の一歩を1つ選んでください。"));
+    const before = state.store.rounds.slice();
+    c.date = localDate();
+    c.step = step.slice(0, 80);
+    c.reflection = clipReflection(c.text, c.reflect.organized);
+    state.store.rounds.push({ round: c.round, date: c.date, kind: "short", step: c.step, step_done: null, reflection: c.reflection });
+    const ok = await save();
+    if (!ok && HAND) {
+      state.store.rounds = before; // 保存できなかった回は積まない（もう一度押せる）
+      return err.replaceChildren(saveFailed());
+    }
+    clearDraft();
+    showDone(ok);
+  }));
+
+  const organized = reflectionList(c.reflect.organized);
+  where("今週の一歩（振り返り）", c.reflect.step_options);
+  screen(
+    resumed ? resumedNote() : null,
+    h("h1", {}, "今週の一歩を決める"),
+    organized.length ? h("section", { class: "card" }, h("h2", {}, "書いてくれたことの整理"), organized) : null,
+    h("section", { class: "card" }, h("h2", {}, "コーチから"), h("p", {}, c.reflect.reply)),
+    h("section", { class: "card steps", onchange: picker.capture, oninput: picker.capture }, h("h2", {}, "どれをやりますか"),
+      h("div", { class: "kinds", role: "radiogroup", "aria-label": "今週の一歩" }, picker.options),
+      h("div", { class: "row" }, decide), err),
+    leaveButton(),
+  );
+  picker.restore();
 }
 
 function showDone(saved) {
   const c = state.current;
+  if (isShort(c)) return showShortDone(saved);
   where("おつかれさま", c.coaching.next_questions.map((q) => q.text));
   screen(
     h("h1", {}, `${c.round} 回目、おつかれさまでした`),
@@ -828,6 +958,26 @@ function showDone(saved) {
   );
 }
 
+// ショート回の終わり：整理・まとめ・育ちの記録（次の回の深掘りは変えていないので出さない）
+function showShortDone(saved) {
+  const c = state.current;
+  const organized = reflectionList(c.reflection);
+  where("おつかれさま（振り返り）");
+  screen(
+    h("h1", {}, `${c.round} 回目、おつかれさまでした`),
+    saved ? null : errorBox("このブラウザに記録を保存できませんでした（プライベートブラウズでは残りません）。"),
+    cheerBox([stepDecidedNote()]),
+    HAND ? recordBox(c) : null,
+    organized.length ? h("section", { class: "card" }, h("h2", {}, "今回の振り返り"), organized) : null,
+    h("section", { class: "card" },
+      h("h2", {}, "コーチに送るまとめ"),
+      h("p", { class: "notice" }, "送りたい項目を選んで、コピーか共有で送れます。"),
+      summaryBox(state.store.rounds.length - 1, {}, true)),
+    growthCard(false),
+    h("div", { class: "row" }, h("button", { onclick: showHome }, "ホームへ"), h("button", { onclick: showStart }, "はじめに戻る")),
+  );
+}
+
 // ---------------------------------------------------------------- 5. 育ちの記録
 
 function growthCard(withPast = true) {
@@ -836,6 +986,8 @@ function growthCard(withPast = true) {
   const rate = stepDoneRate(rounds);
   const lessons = rounds.filter((r) => r.lesson).reverse();
   const memos = memoEntries(rounds);
+  const scored = scoredRounds(rounds); // グラフと点数の表は、点数のある回だけ
+  const reflections = rounds.filter((r) => isShort(r)).reverse();
 
   const reset = () => {
     if (!confirm(`${ROLE_NAME[state.role]}の記録をすべて消します。元に戻せません。消すには「OK」、やめるには「キャンセル」を押してください。`)) return;
@@ -846,17 +998,22 @@ function growthCard(withPast = true) {
 
   return h("section", { class: "card" },
     h("h2", {}, "育ちの記録"),
-    chart(rounds),
+    chart(scored),
     h("details", {}, h("summary", {}, "点数を表で見る"),
       h("table", {},
         h("tr", {}, h("th", {}, "回"), AXIS_KEYS.map((k) => h("th", {}, k))),
-        rounds.map((r) => h("tr", {}, h("td", {}, `${r.round}回目（${r.date}）`), AXIS_KEYS.map((k) => h("td", {}, r.scores[k])))))),
+        scored.map((r) => h("tr", {}, h("td", {}, `${r.round}回目（${r.date}）`), AXIS_KEYS.map((k) => h("td", {}, r.scores[k])))))),
     lessons.length ? h("h3", {}, "これまでの学び") : null,
     lessons.map((r) => h("details", { class: "learned" }, h("summary", {}, `${r.round}回目：${r.lesson.title}`), h("p", {}, r.lesson.body))),
     memos.length ? h("h3", {}, "これまでのメモ") : null,
     memos.map((e) => h("details", { class: "learned" },
       h("summary", {}, `${e.round}回目（${e.date}）：メモ ${e.items.length} 件`),
       h("ul", { class: "memos" }, e.items.map((it) => h("li", {}, h("b", {}, it.label), h("span", { class: "memo-text" }, it.memo)))))),
+    reflections.length ? h("h3", {}, "これまでの振り返り") : null,
+    reflections.map((r) => h("details", { class: "learned" },
+      h("summary", {}, `${r.round}回目（${r.date}）の振り返り`),
+      reflectionList(r.reflection),
+      h("p", { class: "memo-text" }, r.reflection.text))),
     h("h3", {}, "これまでの一歩" + (rate == null ? "" : `（やれた率 ${rate}%）`)),
     h("ul", {}, rounds.slice().reverse().map((r) =>
       h("li", {}, `${r.round}回目：${r.step}`, r.step_done === true ? "（やれた）"
@@ -966,6 +1123,8 @@ const SUMMARY_ITEMS = [
   ["step", "一歩（前回の一歩とやれたか・今週の一歩）", true],
   ["note", "やれなかったときの、ひとこと（一歩と一緒に入ります）", false],
   ["scores", "4つの軸の点数", false],
+  ["reflection", "前回からの振り返り（整理）", true],
+  ["reflection_text", "振り返りで書いた文そのもの", false],
   ["lesson", "今日の学びの題", false],
   ["concern", "いちばん引っかかっていること", false],
   ["reply", "3分コーチングでの答え", false],
@@ -978,7 +1137,9 @@ function summaryBox(index, extra = {}, mainAction = false) {
   const has = {
     step: Boolean(r.step || prev?.step),
     note: Boolean(prev?.step && stepMiss(prev.step_done, prev.step_reason, prev.step_note).note),
-    scores: true,
+    scores: Boolean(r.scores),
+    reflection: isShort(r) && ["events", "did", "insights"].some((k) => r.reflection?.[k]?.length),
+    reflection_text: isShort(r) && Boolean(r.reflection?.text),
     lesson: Boolean(r.lesson?.title),
     concern: Boolean(extra.concern?.trim()),
     reply: Boolean(extra.reply?.trim()),
@@ -1092,10 +1253,12 @@ function recordBox(c) {
     try {
       const out = await local("POST", "/api/record", {
         role: state.role, round_id: c.id,
-        record: {
-          round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
-          diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step, memos: c.memos,
-        },
+        record: isShort(c)
+          ? { kind: "short", round: c.round, date: c.date, profile: myProfile(), reflection: c.reflection, reply: c.reflect.reply, step: c.step, prev_step: c.prev_step }
+          : {
+            round: c.round, date: c.date, profile: myProfile(), fixed: c.fixed, deep: c.deep, concern: c.concern, concern_kind: c.concern_kind,
+            diagnosis: c.diagnosis, coaching: c.coaching, step: c.step, prev_step: c.prev_step, memos: c.memos,
+          },
       });
       status.textContent = `この回の記録を残しました（rounds/${out.file}）。答えたことは「わたしのこと.md」にも足しました。`;
     } catch (e) {

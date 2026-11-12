@@ -7,6 +7,15 @@ export const AXIS_KEYS = ["A", "B", "C", "D"];
 export const STORE_VERSION = 1;
 export const LESSON_TITLE_MAX = 40;
 export const LESSON_BODY_MAX = 600;
+// 振り返りだけの回（ショート回）：本人が書いた文と、AI が整理した出来事・やったこと・気づき
+export const REFLECT_TEXT_MAX = 2000;
+export const REFLECT_ITEM_MAX = 80;
+export const REFLECT_ITEMS_MAX = 5;
+const REFLECT_KEYS = ["events", "did", "insights"];
+
+export const isShort = (r) => r?.kind === "short";
+// 点数のある回だけ（ショート回は点数を持たない）
+export const scoredRounds = (rounds) => rounds.filter((r) => !isShort(r));
 
 // ---------------------------------------------------------------- 記録の形の検証
 // localStorage は利用者も書き換えられるので、読み込むたびに形と範囲を確かめる。
@@ -18,10 +27,12 @@ const isStr = (v, max) => typeof v === "string" && v.length <= max;
 export function validateStore(data) {
   if (!data || typeof data !== "object" || data.version !== STORE_VERSION) return null;
   if (!Array.isArray(data.rounds) || data.rounds.length > 100) return null;
+  if (isShort(data.rounds[0])) return null; // 1回目はいつもの回（点数のある回が無いと、推移が描けない）
   for (const r of data.rounds) {
     if (!r || typeof r !== "object") return null;
     if (!Number.isInteger(r.round) || !isStr(r.date, 10)) return null;
-    if (!AXIS_KEYS.every((k) => isScore(r.scores?.[k]))) return null;
+    if (r.kind !== undefined && !isShort(r)) return null;
+    if (isShort(r) ? r.scores !== undefined || !validReflection(r.reflection) : !AXIS_KEYS.every((k) => isScore(r.scores?.[k]))) return null;
     if (!isStr(r.step ?? "", 80)) return null;
     if (![true, false, null, undefined].includes(r.step_done)) return null;
     if (r.lesson != null && !(isStr(r.lesson?.title, LESSON_TITLE_MAX) && isStr(r.lesson?.body, LESSON_BODY_MAX))) return null;
@@ -61,6 +72,30 @@ function validMiss(r) {
   if (r.step_reason !== undefined && !isMissReason(r.step_reason)) return false;
   return r.step_note === undefined || (isStr(r.step_note, STEP_NOTE_MAX) && !r.step_note.includes("\n"));
 }
+
+// ショート回の振り返り。{ text, events, did, insights }
+function validReflection(v) {
+  if (!v || typeof v !== "object" || !isStr(v.text, REFLECT_TEXT_MAX)) return false;
+  return REFLECT_KEYS.every((k) => Array.isArray(v[k]) && v[k].length <= REFLECT_ITEMS_MAX && v[k].every((t) => isStr(t, REFLECT_ITEM_MAX)));
+}
+
+// 振り返りを記録に残す形にする。AI の整理は長さと件数が保証されないので、ここで切る（記録全体を壊さないため）
+export function clipReflection(text, organized) {
+  const list = (v) => (Array.isArray(v) ? v : [])
+    .filter((t) => typeof t === "string" && t.trim() !== "")
+    .slice(0, REFLECT_ITEMS_MAX)
+    .map((t) => t.trim().slice(0, REFLECT_ITEM_MAX));
+  const o = organized && typeof organized === "object" ? organized : {};
+  return { text: typeof text === "string" ? text.trim().slice(0, REFLECT_TEXT_MAX) : "", ...Object.fromEntries(REFLECT_KEYS.map((k) => [k, list(o[k])])) };
+}
+
+// 最後から続くショート回の数
+export function shortStreak(rounds) {
+  let n = 0;
+  for (let i = rounds.length - 1; i >= 0 && isShort(rounds[i]); i--) n++;
+  return n;
+}
+export const SHORT_STREAK_NOTE = 3; // この回数続いたら、ホームで問いに答える回も勧める
 
 // 各問いのメモ（任意・3回目から）。{ fixed: { A: 文 }, deep: [{ text, memo }] }。無い古い記録も通す
 function validMemos(m) {
@@ -109,11 +144,15 @@ export function clipLesson(lesson) {
 
 // 途中の回の下書き（ページを離れて戻っても続きから開くため）。開いてよいのは、
 // まだ保存していない次の回で、同じ深掘りの問いに答えている途中のものだけ（保存済みの回を二重に積まない）
+// ショート回（draft.kind === "short"）は、書いている途中（reflect）と一歩を選ぶ途中（short_steps）だけ
 export const DRAFT_STAGES = ["quiz", "diagnosis", "steps"];
+export const SHORT_DRAFT_STAGES = ["reflect", "short_steps"];
 export function draftMatches(draft, rounds, deepTexts) {
   if (!draft || typeof draft !== "object") return false;
-  if (draft.round !== rounds.length + 1 || !DRAFT_STAGES.includes(draft.stage)) return false;
+  const stages = draft.kind === "short" ? SHORT_DRAFT_STAGES : DRAFT_STAGES;
+  if (draft.round !== rounds.length + 1 || !stages.includes(draft.stage)) return false;
   if (JSON.stringify(draft.deep_texts) !== JSON.stringify(deepTexts)) return false;
+  if (draft.kind === "short") return draft.stage === "reflect" || Array.isArray(draft.current?.reflect?.step_options);
   if (draft.stage !== "quiz" && !(draft.current?.diagnosis && typeof draft.current.diagnosis === "object")) return false;
   if (draft.stage === "steps" && !Array.isArray(draft.current?.coaching?.step_options)) return false;
   return true;
@@ -158,13 +197,15 @@ export function gapDays(from, to) {
   return Number.isFinite(d) ? d : 0;
 }
 
-// 1回の問いの最初の画面に出す一言。rounds は、これから始める回より前の記録（前回の一歩の結果は反映済み）
-export function roundStartNotes(rounds) {
+// 1回の問いの最初の画面に出す一言。rounds は、これから始める回より前の記録（前回の一歩の結果は反映済み）。
+// short（振り返りだけの回）は問いが無いので、前回の一歩の結果の一言だけ
+export function roundStartNotes(rounds, short = false) {
   const round = rounds.length + 1;
   const last = rounds.at(-1);
   const notes = [];
   if (last?.step_done === true) notes.push(trailingDone(rounds) === 3 ? CHEERS.streak3 : fillCheer(CHEERS.stepDone, { rate: stepDoneRate(rounds) }));
   else if (last?.step_done === false) notes.push(CHEERS.stepMissed);
+  if (short) return notes;
   if (round === 2) notes.push(CHEERS.second);
   if (round === MEMO_FROM_ROUND) notes.push(CHEERS.memoOpen);
   if (round === DEEP_BY_ROUND.length) notes.push(fillCheer(CHEERS.full, { round, total: 4 + deepCountForRound(round) }));
@@ -174,7 +215,7 @@ export function roundStartNotes(rounds) {
 // 見立ての先頭に出す一言。current は今の回（点数は current.fixed）、rounds はこの回を足す前の記録
 export function diagnosisNotes(rounds, current) {
   if (current.round === 1) return [CHEERS.firstDiagnosis];
-  const prev = rounds.at(-1)?.scores;
+  const prev = scoredRounds(rounds).at(-1)?.scores;
   if (!prev) return [];
   let best = null;
   for (const k of AXIS_KEYS) {
@@ -190,8 +231,9 @@ export function homeNotes(rounds, today = localDate()) {
   const last = rounds.at(-1);
   if (!last) return [];
   if (gapDays(last.date, today) >= CHEER_GAP_DAYS) return [CHEERS.gapReturn];
+  const notes = shortStreak(rounds) >= SHORT_STREAK_NOTE ? [CHEERS.shortStreak] : [];
   const next = 4 + deepCountForRound(rounds.length + 1);
-  return next > 4 + deepCountForRound(rounds.length) ? [fillCheer(CHEERS.nextCount, { n: next })] : [];
+  return next > 4 + deepCountForRound(rounds.length) ? [...notes, fillCheer(CHEERS.nextCount, { n: next })] : notes;
 }
 
 export const stepDecidedNote = () => CHEERS.stepDecided;
@@ -324,11 +366,13 @@ export function localDate(d = new Date()) {
 
 // 回ごとの点数を軸別の系列にする（グラフ用）
 export function seriesByAxis(rounds) {
-  return Object.fromEntries(AXIS_KEYS.map((k) => [k, rounds.map((r) => ({ round: r.round, value: r.scores[k] }))]));
+  const scored = scoredRounds(rounds);
+  return Object.fromEntries(AXIS_KEYS.map((k) => [k, scored.map((r) => ({ round: r.round, value: r.scores[k] }))]));
 }
 
 // 最初の回から最新の回への変化
-export function changeSinceFirst(rounds) {
+export function changeSinceFirst(all) {
+  const rounds = scoredRounds(all);
   if (rounds.length < 2) return null;
   const first = rounds[0].scores;
   const last = rounds[rounds.length - 1].scores;
@@ -383,7 +427,13 @@ export function roundSummary(roleName, rounds, index, pick = {}, extra = {}) {
     }
     if (r.step) lines.push(`今週の一歩：${r.step}`);
   }
-  if (pick.scores) lines.push(`4つの軸（1〜4）：${AXIS_KEYS.map((k) => `${AXIS_NAMES[k]} ${r.scores[k]}`).join("／")}`);
+  if (pick.scores && r.scores) lines.push(`4つの軸（1〜4）：${AXIS_KEYS.map((k) => `${AXIS_NAMES[k]} ${r.scores[k]}`).join("／")}`);
+  if (pick.reflection && isShort(r)) {
+    const names = { events: "出来事", did: "やったこと", insights: "気づき" };
+    const items = REFLECT_KEYS.filter((k) => r.reflection?.[k]?.length).map((k) => `　${names[k]}：${r.reflection[k].join("／")}`);
+    if (items.length) lines.push("前回からの振り返り", ...items);
+  }
+  if (pick.reflection_text && isShort(r) && r.reflection?.text) lines.push(`書いたこと：${oneLine(r.reflection.text)}`);
   if (pick.lesson && r.lesson?.title) lines.push(`今日の学び：${r.lesson.title}`);
   const concern = typeof extra.concern === "string" ? extra.concern.trim() : "";
   const kindKey = typeof extra.concern_kind === "string" && Object.hasOwn(CONCERN_KINDS, extra.concern_kind) ? extra.concern_kind : "";
