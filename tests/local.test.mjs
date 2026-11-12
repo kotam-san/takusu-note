@@ -94,7 +94,7 @@ test("書き込みは Origin が完全一致・JSON のときだけ", async () =
 
 // ---------------------------------------------------------------- AI の3つの道
 
-test("3つの道が通り、claude には何も読み書きさせない引数で渡す", async () => {
+test("4つの道が通り、claude には何も読み書きさせない引数で渡す", async () => {
   setMode("ok");
   fs.rmSync(LOG, { force: true });
   const s = await req("/api/start", { method: "POST", body: { role: "ceo", profile, concern: "固有の悩みQ7" } });
@@ -105,9 +105,12 @@ test("3つの道が通り、claude には何も読み書きさせない引数で
   const c = await req("/api/coach", { method: "POST", body: { role: "ceo", question: "q", reply: "r", fixed } });
   assert.equal(c.status, 200);
   assert.equal((await c.json()).step_options.length, 3);
+  const r = await req("/api/reflect", { method: "POST", body: { role: "ceo", round: 2, text: "前回から" } });
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).organized.events, ["出来事"]);
 
   const log = calls();
-  assert.equal(log.length, 3);
+  assert.equal(log.length, 4);
   for (const { args } of log) {
     const at = (flag) => args[args.indexOf(flag) + 1];
     assert.equal(at("--model"), "claude-sonnet-5-5");
@@ -185,7 +188,7 @@ test("記録の読み書き：はじめは空、保存すると版が進み、�
   assert.equal(fs.statSync(DATA).mode & 0o777, 0o700);
 });
 
-test("記録の保存だけは学びが積み上がっても受け取る（512KB まで）。ほかの道は 64KB のまま", async () => {
+test("記録の保存だけは学びと振り返りが積み上がっても受け取る（2MB まで）。ほかの道は 64KB のまま", async () => {
   const sc = { A: 2, B: 2, C: 3, D: 1 };
   const rounds = Array.from({ length: 100 }, (_, i) => ({
     round: i + 1, date: "2026-10-28", scores: sc, step: "一歩".repeat(20), step_done: true,
@@ -197,7 +200,12 @@ test("記録の保存だけは学びが積み上がっても受け取る（512KB
   assert.equal((await req("/api/store/ceo", { method: "PUT", body: { version: cur.version, store: big } })).status, 200);
   const again = await (await req("/api/store/ceo")).json();
   assert.equal(again.store.rounds[99].lesson.body.length, 600);
-  const huge = await req("/api/store/ceo", { method: "PUT", body: { version: again.version, store: big, pad: "あ".repeat(180_000) } });
+  const shorts = { ...big, rounds: big.rounds.map((r, i) => (i % 2 ? { round: r.round, date: r.date, kind: "short", step: r.step, step_done: true,
+    reflection: { text: "振".repeat(2000), events: Array(5).fill("出".repeat(80)), did: Array(5).fill("や".repeat(80)), insights: Array(5).fill("気".repeat(80)) } } : r)) };
+  assert.ok(Buffer.byteLength(JSON.stringify(shorts)) > 512_000);
+  assert.equal((await req("/api/store/ceo", { method: "PUT", body: { version: again.version, store: shorts } })).status, 200);
+  const latest = await (await req("/api/store/ceo")).json();
+  const huge = await req("/api/store/ceo", { method: "PUT", body: { version: latest.version, store: big, pad: "あ".repeat(700_000) } });
   assert.equal(huge.status, 413);
   const fb = await req("/api/feedback", { method: "POST", body: { role: "ceo", screen: "x", text: "あ".repeat(30_000) } });
   assert.equal(fb.status, 413);
@@ -335,4 +343,30 @@ test("感想は画面と問いと一緒に feedback.md に1行ずつ足す（AI 
   assert.match(lines.at(-2), /^- \d{4}-\d{2}-\d{2} \d{2}:\d{2}｜社長・2回目｜問い｜問い：任せた仕事を \/ 見に行く｜例が \/ 分かりにくい$/);
   assert.match(lines.at(-1), /｜立場未選択｜はじめ｜立場の説明がほしい$/);
   assert.equal(calls().length, 0);
+});
+
+test("ショート回の記録：整理とコーチからの一言と一歩を Markdown に残し、わたしのこと.md には本人が書いた文と一歩だけを足す（AI の整理は入れない）", async () => {
+  const f = path.join(DATA, "わたしのこと.md");
+  const before = fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
+  const rec = {
+    kind: "short", round: 6, date: "2026-11-29", profile,
+    reflection: { text: "月曜に\n朝会を任せた", events: ["出来事E"], did: ["やったことD"], insights: [] },
+    reply: "受け止めR", step: "金曜に聞く", prev_step: { text: "朝会を任せる", done: true },
+  };
+  const one = await (await req("/api/record", { method: "POST", body: { role: "ceo", round_id: "short123", record: rec } })).json();
+  const md = fs.readFileSync(path.join(DATA, "rounds", one.file), "utf8");
+  assert.match(md, /^# 社長・6 回目（振り返り）（2026-11-29）$/m);
+  assert.match(md, /## 前回から書いたこと\n月曜に\n朝会を任せた\n/);
+  assert.match(md, /## 整理\n- 出来事：出来事E\n- やったこと：やったことD\n/);
+  assert.doesNotMatch(md, /気づき：/);
+  assert.match(md, /## コーチから\n受け止めR\n/);
+  assert.match(md, /## 前回の一歩\n朝会を任せる → やれた\n/);
+  assert.match(md, /## 今週の一歩\n金曜に聞く\n/);
+  assert.doesNotMatch(md, /推移を見る4問|3分コーチング|次の回の深掘り/);
+  const added = fs.readFileSync(f, "utf8").slice(before.length);
+  assert.match(added, /^## 2026-11-29｜社長・6回目（振り返り）$/m);
+  assert.match(added, /- 前回からのこと（本人の言葉）：月曜に \/ 朝会を任せた/);
+  assert.match(added, /- 前の回の一歩：朝会を任せる → やれた/);
+  assert.match(added, /- 今週の一歩：金曜に聞く/);
+  assert.doesNotMatch(added, /自己評価|出来事E|受け止めR/);
 });

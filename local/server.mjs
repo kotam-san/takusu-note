@@ -24,7 +24,7 @@ const DOCS = path.join(HERE, "..", "docs");
 const MODEL = "claude-sonnet-5-5"; // 公開の中継と同じ
 const AI_TIMEOUT_MS = Number(process.env.TAKUSU_AI_TIMEOUT_MS || 120_000); // 画面の待ち時間（150秒）より短く。試験では縮める
 const MAX_BODY = 64_000; // バイト
-const MAX_STORE_BODY = 512_000; // 記録の保存だけ。学びの本文が回ごとに積み上がるため
+const MAX_STORE_BODY = 2_000_000; // 記録の保存だけ。学びの本文と振り返りの文（1回2000字まで）が回ごとに積み上がるため
 const MAX_AI_OUT = 1_000_000; // claude -p の出力の上限（バイト）
 const ROLES = new Set(["ceo", "leader"]);
 const ROLE_NAME = { ceo: "社長", leader: "幹部" };
@@ -177,7 +177,46 @@ const ROUND_ID = /^[a-z0-9]{8,32}$/;
 const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
 const oneLine = (v) => v.replace(/\s*\n\s*/g, " / ");
 
+// ショート回の整理（AI が分けたもの）。空の種類は出さない
+const REFLECT_NAMES = [["events", "出来事"], ["did", "やったこと"], ["insights", "気づき"]];
+function reflectLines(o) {
+  return REFLECT_NAMES.flatMap(([k, name]) => (Array.isArray(o?.[k]) ? o[k].slice(0, 5) : []).map((t) => str(t, 80)).filter(Boolean).map((t) => `- ${name}：${t}`));
+}
+
+// 振り返りだけの回（問いに答えず、前回からのことを書いた回）
+function shortMarkdown(r, role, roundId) {
+  const p = validateProfile(r.profile, role);
+  return [
+    "---",
+    `round_id: ${roundId}`,
+    `role: ${role}`,
+    `round: ${r.round}`,
+    `date: ${r.date}`,
+    "kind: short",
+    "---",
+    "",
+    `# ${ROLE_NAME[role]}・${r.round} 回目（振り返り）（${r.date}）`,
+    "",
+    p ? `プロフィール：${profileText(p, role)}` : "",
+    "",
+    "## 前回から書いたこと",
+    str(r.reflection?.text, 2000),
+    "",
+    "## 整理",
+    ...reflectLines(r.reflection),
+    "",
+    "## コーチから",
+    str(r.reply, 1000),
+    "",
+    ...(prevLine(r) ? ["## 前回の一歩", prevLine(r), ""] : []),
+    "## 今週の一歩",
+    str(r.step, 80),
+    "",
+  ].join("\n");
+}
+
 function roundMarkdown(r, role, roundId) {
+  if (r.kind === "short") return shortMarkdown(r, role, roundId);
   const p = validateProfile(r.profile, role);
   const d = r.diagnosis ?? {};
   const c = r.coaching ?? {};
@@ -291,7 +330,25 @@ function aboutMeHead() {
   ].join("\n");
 }
 
+// ショート回は、本人が書いた文そのものと一歩だけ（AI の整理は本人のこととして渡さない）
+function aboutMeShort(r, role) {
+  const p = validateProfile(r.profile, role);
+  const text = oneLine(str(r.reflection?.text, 2000).trim());
+  const prev = prevLine(r);
+  return [
+    `## ${r.date}｜${ROLE_NAME[role]}・${r.round}回目（振り返り）`,
+    "",
+    ...(p ? [`- わたしについて：${profileText(p, role)}`] : []),
+    ...(text ? [`- 前回からのこと（本人の言葉）：${text}`] : []),
+    ...(prev ? [`- 前の回の一歩：${prev}`] : []),
+    ...(str(r.step, 80) ? [`- 今週の一歩：${str(r.step, 80)}`] : []),
+    "",
+    "",
+  ].join("\n");
+}
+
 function aboutMeEntry(r, role) {
+  if (r.kind === "short") return aboutMeShort(r, role);
   const p = validateProfile(r.profile, role);
   const concern = str(r.concern, 400);
   const kindName = Object.hasOwn(CONCERN_KINDS, r.concern_kind ?? "") ? CONCERN_KINDS[r.concern_kind] : "";
