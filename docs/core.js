@@ -196,13 +196,15 @@ export function gapDays(from, to) {
   return Number.isFinite(d) ? d : 0;
 }
 
-// 1回の問いの最初の画面に出す一言。rounds は、これから始める回より前の記録（前回の一歩の結果は反映済み）
-export function roundStartNotes(rounds) {
+// 1回の問いの最初の画面に出す一言。rounds は、これから始める回より前の記録（前回の一歩の結果は反映済み）。
+// short（振り返りだけの回）は問いが無いので、前回の一歩の結果の一言だけ
+export function roundStartNotes(rounds, short = false) {
   const round = rounds.length + 1;
   const last = rounds.at(-1);
   const notes = [];
   if (last?.step_done === true) notes.push(trailingDone(rounds) === 3 ? CHEERS.streak3 : fillCheer(CHEERS.stepDone, { rate: stepDoneRate(rounds) }));
   else if (last?.step_done === false) notes.push(CHEERS.stepMissed);
+  if (short) return notes;
   if (round === 2) notes.push(CHEERS.second);
   if (round === MEMO_FROM_ROUND) notes.push(CHEERS.memoOpen);
   if (round === DEEP_BY_ROUND.length) notes.push(fillCheer(CHEERS.full, { round, total: 4 + deepCountForRound(round) }));

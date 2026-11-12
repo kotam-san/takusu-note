@@ -650,3 +650,11 @@ test("途中の回：ショート回の下書きは reflect と short_steps で�
   assert.equal(draftMatches({ ...d, kind: undefined }, rounds, deep), false); // いつもの回の段ではない
   assert.equal(draftMatches({ ...d, stage: "quiz", kind: "short" }, rounds, deep), false);
 });
+
+test("回の最初の一言：ショート回は、前回の一歩の結果だけを出す（問いの節目の一言は出さない）", () => {
+  const rounds = [round(1, S2, { step_done: true }), short(2, { step_done: true })];
+  const notes = roundStartNotes(rounds, true);
+  assert.equal(notes.length, 1);
+  assert.ok(!notes.includes(CHEERS.memoOpen));
+  assert.ok(roundStartNotes(rounds).includes(CHEERS.memoOpen)); // いつもの回は今どおり
+});
