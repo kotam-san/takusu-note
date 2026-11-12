@@ -1,11 +1,11 @@
-// 託すノートの3つの道（1回目の問い・診断と教材・3分コーチング）の中身。
+// 託すノートの4つの道（1回目の問い・診断と教材・3分コーチング・振り返りだけの回）の中身。
 // 入力の検証・AI に渡す本文の組み立て・出力の検証だけを持ち、AI の呼び方と回数の数え方は外から受け取る。
 // 公開の中継（index.js・Anthropic API）と手元の入口（local/server.mjs・claude -p）の両方が使う。
 
 import {
-  AXES, COACH_SCHEMA, DIAGNOSE_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, startContent, startSystem,
+  AXES, COACH_SCHEMA, DIAGNOSE_SCHEMA, REFLECT_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, reflectSystem, startContent, startSystem,
 } from "./prompts.js";
-import { isMissReason, missDetail, stepMiss } from "../../docs/core.js";
+import { REFLECT_ITEMS_MAX, REFLECT_ITEM_MAX, REFLECT_TEXT_MAX, isMissReason, missDetail, stepMiss } from "../../docs/core.js";
 import { profileText, validateProfile } from "../../docs/profile.js";
 import { CONCERN_KINDS, STEP_MISS_REASONS, STEP_NOTE_MAX, fixedFor } from "../../docs/questions.js";
 
@@ -21,6 +21,7 @@ export function makeHandlers({ ai, count = async () => {} }) {
     "/api/start": (body) => start(body, ai, count),
     "/api/diagnose": (body) => diagnose(body, ai, count),
     "/api/coach": (body) => coach(body, ai, count),
+    "/api/reflect": (body) => reflect(body, ai, count),
   };
 }
 
@@ -125,6 +126,52 @@ async function coach(body, ai, count) {
   return out;
 }
 
+// ---------------------------------------------------------------- 振り返りだけの回
+
+async function reflect(body, ai, count) {
+  const role = checkRole(body.role);
+  const round = checkInt(body.round, 2, 100, "round"); // 1回目は振り返る前回が無い
+  const text = checkText(body.text, REFLECT_TEXT_MAX, "text");
+  if (!text) throw new InputError("text が空です");
+  const history = checkHistory(body.history);
+  const prev = checkPrev(body.prev_step);
+  const profile = body.profile == null ? null : checkProfile(body.profile, role);
+
+  const content = [
+    ...profileBlock(profile, role),
+    `回：${round} 回目`,
+    "",
+    "<history>",
+    history.length ? history.map(fmtHistory).join("\n") : "（初回）",
+    prev ? fmtPrev(prev) : "",
+    "</history>",
+    "",
+    "<reflection>",
+    text,
+    "</reflection>",
+  ].join("\n");
+
+  const raw = await ai(reflectSystem(role), content, REFLECT_SCHEMA, 3000);
+  const out = clipReflectOut(raw);
+  if (!validReflection(out)) throw new OutputError("reflect shape");
+  await count("rounds_short");
+  if (prev?.done === true) await count("step_done");
+  if (prev?.done === false) await count("step_not_done");
+  return out;
+}
+
+// AI は件数と長さを守らないことがあるので、空でないものを先頭から切って通す（候補は3つ・整理は各5件・80字）
+function clipReflectOut(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = raw.organized;
+  const list = (v) => (Array.isArray(v) ? v.filter(filled).slice(0, REFLECT_ITEMS_MAX).map((t) => t.trim().slice(0, REFLECT_ITEM_MAX)) : v);
+  return {
+    ...raw,
+    step_options: Array.isArray(raw.step_options) ? raw.step_options.filter(filled).slice(0, 3) : raw.step_options,
+    organized: o && typeof o === "object" ? { events: list(o.events), did: list(o.did), insights: list(o.insights) } : o,
+  };
+}
+
 // ---------------------------------------------------------------- AI の出力の形
 
 const filled = (v) => typeof v === "string" && v.trim() !== "";
@@ -134,6 +181,11 @@ export function validDiagnosis(out) {
   return out?.axis_notes?.length === 4 && out.lesson?.check?.choices?.length === 3 &&
     [0, 1, 2].includes(out.lesson.check.answer_index) && filled(out.coaching_question) &&
     n >= 2 && n <= 3 && out.coaching_choices.every(filled);
+}
+
+export function validReflection(out) {
+  return out?.step_options?.length === 3 && filled(out.reply) &&
+    ["events", "did", "insights"].every((k) => Array.isArray(out.organized?.[k]));
 }
 
 export function validCoaching(out) {
@@ -221,10 +273,13 @@ function profileBlock(profile, role) {
 function checkHistory(v) {
   return checkList(v ?? [], 24, (h) => {
     const step_done = checkDone(h.step_done ?? null);
+    const short = h.kind === "short"; // 振り返りだけの回は点数を持たず、気づきを1つ添える
     return {
       round: checkInt(h.round, 1, 100, "history.round"),
       date: checkText(h.date ?? "", 10, "history.date"),
-      scores: Object.fromEntries(AXIS_KEYS.map((k) => [k, checkInt(h.scores?.[k], 1, 4, "history.scores")])),
+      ...(short
+        ? { kind: "short", insight: checkText(h.insight ?? "", REFLECT_ITEM_MAX, "history.insight") }
+        : { scores: Object.fromEntries(AXIS_KEYS.map((k) => [k, checkInt(h.scores?.[k], 1, 4, "history.scores")])) }),
       step: checkText(h.step ?? "", 80, "history.step"),
       step_done,
       reason: checkMiss(step_done, h.step_reason, null, "history").reason,
@@ -232,8 +287,9 @@ function checkHistory(v) {
   });
 }
 function fmtHistory(h) {
-  const scores = AXIS_KEYS.map((k) => `${k}=${h.scores[k]}`).join(" ");
+  const scores = h.kind === "short" ? "振り返りの回（点数なし）" : AXIS_KEYS.map((k) => `${k}=${h.scores[k]}`).join(" ");
   const done = h.step_done === true ? "やれた"
     : h.step_done === false ? `やれなかった${h.reason ? `（${STEP_MISS_REASONS[h.reason]}）` : ""}` : "未確認";
-  return `- ${h.round}回目（${h.date}）${scores}／一歩「${h.step}」→ ${done}`;
+  const line = `- ${h.round}回目（${h.date}）${scores}／一歩「${h.step}」→ ${done}`;
+  return h.insight ? `${line}\n　気づき：${h.insight}` : line;
 }

@@ -40,6 +40,10 @@ test("存在しない道は 404", async () => {
   assert.equal((await call("/api/diagnose", { method: "GET" })).status, 404);
 });
 
+test("振り返りの道は受け付ける（空の文は 400 で、404 にならない）", async () => {
+  assert.equal((await call("/api/reflect", { body: { role: "ceo", round: 2, text: "" } })).status, 400);
+});
+
 test("壊れた JSON は 400", async () => {
   assert.equal((await call("/api/diagnose", { body: "{bad" })).status, 400);
 });
@@ -99,7 +103,7 @@ test("stats は回数だけを返す", async () => {
   const res = await call("/api/stats", { method: "GET" });
   const data = await res.json();
   assert.deepEqual(Object.keys(data).sort(), [
-    "completion_rate", "returning_rate", "rounds_completed", "rounds_profiled", "rounds_returning", "rounds_started",
+    "completion_rate", "returning_rate", "rounds_completed", "rounds_profiled", "rounds_returning", "rounds_short", "rounds_started",
     "step_done", "step_done_rate", "step_not_done",
   ]);
 });

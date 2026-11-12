@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InputError, OutputError, makeHandlers } from "../worker/src/handlers.js";
-import { COACH_SCHEMA, DIAGNOSE_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, startSystem } from "../worker/src/prompts.js";
+import { COACH_SCHEMA, DIAGNOSE_SCHEMA, REFLECT_SCHEMA, START_SCHEMA, coachSystem, diagnoseSystem, reflectSystem, startSystem } from "../worker/src/prompts.js";
 
 const qs = ["A", "A", "B", "B", "C", "D"].map((axis) => ({ axis, text: "q", because: "b" }));
 const qs3 = ["A", "B", "C"].map((axis) => ({ axis, text: "q", because: "b" })); // 1回目は深掘り3問
@@ -15,6 +15,7 @@ const OUT = {
     lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
   },
   coach: { reflection: "r", step_options: ["一歩1", "一歩2", "一歩3"], next_questions: qs, fixed_examples: ex },
+  reflect: { organized: { events: ["出来事"], did: ["やったこと"], insights: ["気づき"] }, reply: "受け止め", step_options: ["一歩1", "一歩2", "一歩3"] },
 };
 
 function setup(out) {
@@ -189,4 +190,58 @@ test("これまでの記録：やれなかった回の理由だけを添え、�
   assert.match(sent[0].content, /一歩「一歩2」→ やれた\n/);
   assert.match(sent[0].content, /一歩「一歩3」→ やれなかった\n/);
   await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 2, fixed, deep: [], history: [h(1, false, "money")] }), InputError);
+});
+
+// ---------------------------------------------------------------- 振り返りだけの回
+
+test("振り返り：文と前回の一歩とこれまでを渡し、rounds_short と一歩の結果を数える", async () => {
+  const { handlers, sent, counted } = setup(OUT.reflect);
+  const out = await handlers["/api/reflect"]({ role: "ceo", round: 3, text: "  月曜に朝会を任せた  ", prev_step: { text: "朝会を任せる", done: false, reason: "time" }, profile });
+  assert.equal(sent[0].system, reflectSystem("ceo"));
+  assert.equal(sent[0].schema, REFLECT_SCHEMA);
+  assert.equal(sent[0].maxTokens, 3000);
+  assert.match(sent[0].content, /<reflection>\n月曜に朝会を任せた\n<\/reflection>/);
+  assert.match(sent[0].content, /回：3 回目/);
+  assert.match(sent[0].content, /前回の一歩「朝会を任せる」→ やれなかった/);
+  assert.match(sent[0].content, /<profile>/);
+  assert.deepEqual(counted, ["rounds_short", "step_not_done"]);
+  assert.deepEqual(out, OUT.reflect);
+  const done = setup(OUT.reflect);
+  await done.handlers["/api/reflect"]({ role: "leader", round: 2, text: "文", prev_step: { text: "a", done: true } });
+  assert.deepEqual(done.counted, ["rounds_short", "step_done"]);
+});
+
+test("振り返り：空・空白だけ・2001字の文は InputError で、AI を呼ばない", async () => {
+  const { handlers, sent } = setup(OUT.reflect);
+  for (const text of ["", "   \n ", "x".repeat(2001), undefined]) {
+    await assert.rejects(handlers["/api/reflect"]({ role: "ceo", round: 2, text }), InputError);
+  }
+  await assert.rejects(handlers["/api/reflect"]({ role: "ceo", round: 0, text: "文" }), InputError);
+  assert.equal(sent.length, 0);
+});
+
+test("振り返り：候補が4つなら先頭3つ、整理が6件・81字なら切って通す。reply が空・候補が2つなら OutputError で数えない", async () => {
+  const long = { ...OUT.reflect, step_options: ["a", "", "b", "c", "d"], organized: { events: ["x".repeat(81), "2", "3", "4", "5", "6"], did: [], insights: ["", "i"] } };
+  const out = await setup(long).handlers["/api/reflect"]({ role: "ceo", round: 2, text: "文" });
+  assert.deepEqual(out.step_options, ["a", "b", "c"]);
+  assert.equal(out.organized.events.length, 5);
+  assert.equal(out.organized.events[0], "x".repeat(80));
+  assert.deepEqual(out.organized.insights, ["i"]);
+  for (const bad of [{ ...OUT.reflect, reply: " " }, { ...OUT.reflect, step_options: ["a", "b"] }, { ...OUT.reflect, organized: null }]) {
+    const { handlers, counted } = setup(bad);
+    await assert.rejects(handlers["/api/reflect"]({ role: "ceo", round: 2, text: "文" }), OutputError);
+    assert.deepEqual(counted, []);
+  }
+});
+
+test("これまでの記録：ショート回の行は点数なしで通り、「振り返りの回」と気づきを1行添える。いつもの回で点数が無ければ InputError", async () => {
+  const { handlers, sent } = setup(OUT.diagnose);
+  const history = [
+    { round: 1, date: "2026-11-01", scores: { A: 1, B: 2, C: 3, D: 4 }, step: "一歩1", step_done: true },
+    { round: 2, date: "2026-11-05", kind: "short", step: "一歩2", step_done: false, step_reason: "time", insight: "気づきX" },
+  ];
+  await handlers["/api/diagnose"]({ role: "ceo", round: 3, fixed, deep: [], history });
+  assert.match(sent[0].content, /- 2回目（2026-11-05）振り返りの回（点数なし）／一歩「一歩2」→ やれなかった（時間がとれなかった）\n　気づき：気づきX/);
+  await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 3, fixed, deep: [], history: [{ ...history[1], kind: undefined }] }), InputError);
+  await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 3, fixed, deep: [], history: [{ ...history[1], insight: "x".repeat(81) }] }), InputError);
 });
