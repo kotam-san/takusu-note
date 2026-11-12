@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  BACKUP_MAX_CHARS, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
+  BACKUP_MAX_CHARS, REFLECT_ITEM_MAX, REFLECT_ITEMS_MAX, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, shortStreak, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
   nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, trailingDone, validateStore,
 } from "../docs/core.js";
 import { CHEERS, CHEER_GAP_DAYS, DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
@@ -556,4 +556,97 @@ test("ホームの一言：間が空いたときはその言葉、次の回に�
   assert.equal(CHEER_GAP_DAYS, 21);
   assert.equal(MEMO_FROM_ROUND, 3);
   assert.equal(DEEP_BY_ROUND.length, 6);
+});
+
+// ---------------------------------------------------------------- 振り返りだけの回（ショート回）
+
+const short = (n, extra = {}) => ({
+  round: n, date: "2026-11-10", kind: "short", step: "一歩", step_done: null,
+  reflection: { text: "書いた文", events: ["出来事a"], did: ["やったことb"], insights: ["気づきc"] }, ...extra,
+});
+const S2 = { A: 2, B: 2, C: 2, D: 2 };
+
+test("記録の検証：ショート回は点数なし・reflection ありで通り、点数つき・reflection なし・長すぎる文・6件の整理は通さない", () => {
+  assert.equal(REFLECT_TEXT_MAX, 2000);
+  assert.equal(REFLECT_ITEM_MAX, 80);
+  assert.equal(REFLECT_ITEMS_MAX, 5);
+  const ok = { ...emptyStore(), rounds: [round(1, S2, { step_done: true }), short(2)] };
+  assert.equal(validateStore(ok), ok);
+  const bad = (r) => validateStore({ ...emptyStore(), rounds: [round(1, S2), r] });
+  assert.equal(bad(short(2, { scores: S2 })), null);
+  const { reflection, ...noRef } = short(2);
+  assert.equal(bad(noRef), null);
+  assert.equal(bad(short(2, { reflection: { ...reflection, text: "x".repeat(2001) } })), null);
+  assert.equal(bad(short(2, { reflection: { ...reflection, events: ["a", "b", "c", "d", "e", "f"] } })), null);
+  assert.equal(bad(short(2, { reflection: { ...reflection, did: ["x".repeat(81)] } })), null);
+  assert.equal(bad(short(2, { reflection: { ...reflection, insights: "気づき" } })), null);
+  assert.equal(bad(short(2, { kind: "other" })), null);
+  assert.equal(bad(round(2, S2, { kind: "short" })), null); // 点数つきのショート回
+  assert.ok(validateStore({ ...emptyStore(), rounds: [round(1, S2), short(2, { step_done: false, step_reason: "time" })] }));
+});
+
+test("推移：ショート回を飛ばす", () => {
+  const rounds = [round(1, { A: 1, B: 2, C: 2, D: 2 }), short(2), round(3, { A: 3, B: 2, C: 2, D: 2 })];
+  assert.deepEqual(seriesByAxis(rounds).A, [{ round: 1, value: 1 }, { round: 3, value: 3 }]);
+  assert.equal(changeSinceFirst(rounds).A, 2);
+  assert.deepEqual(scoredRounds(rounds).map((r) => r.round), [1, 3]);
+  assert.equal(isShort(rounds[1]), true);
+  assert.equal(isShort(rounds[0]), false);
+});
+
+test("推移：点数のある回が1つなら changeSinceFirst は null", () => {
+  assert.equal(changeSinceFirst([round(1, S2), short(2)]), null);
+});
+
+test("見立ての先頭の一言：前の回がショート回なら、点数のある最後の回と比べる", () => {
+  const cur = { round: 3, fixed: { A: { score: 4 }, B: { score: 2 }, C: { score: 2 }, D: { score: 2 } } };
+  assert.match(diagnosisNotes([round(1, S2), short(2)], cur)[0], /「任せる・任される」（2→4）/);
+});
+
+test("振り返りの整理：切って残す", () => {
+  const out = clipReflection(" 文 ", { events: ["a".repeat(81), "", 3, "b", "c", "d", "e", "f"], did: null });
+  assert.equal(out.text, "文");
+  assert.equal(out.events.length, 5);
+  assert.equal(out.events[0], "a".repeat(80));
+  assert.deepEqual(out.events.slice(1), ["b", "c", "d", "e"]);
+  assert.deepEqual(out.did, []);
+  assert.deepEqual(out.insights, []);
+  assert.equal(clipReflection("x".repeat(2100), null).text.length, 2000);
+  assert.deepEqual(clipReflection(null, "x"), { text: "", events: [], did: [], insights: [] });
+});
+
+test("ショート回の続き：shortStreak", () => {
+  assert.equal(shortStreak([round(1, S2), short(2), short(3), short(4)]), 3);
+  assert.equal(shortStreak([short(1), round(2, S2)]), 0);
+  assert.equal(shortStreak([]), 0);
+});
+
+test("ホームの一言：ショート回が3回続いたら CHEERS.shortStreak を出す（2回では出さない）", () => {
+  const d = "2026-11-10";
+  assert.ok(CHEERS.shortStreak);
+  assert.ok(homeNotes([round(1, S2, { date: d }), short(2), short(3), short(4)], "2026-11-12").includes(CHEERS.shortStreak));
+  assert.ok(!homeNotes([round(1, S2, { date: d }), short(2), short(3)], "2026-11-12").includes(CHEERS.shortStreak));
+});
+
+test("まとめ：ショート回では点数を出さず、整理の箇条書きを出す。書いた文は選んだときだけ", () => {
+  const rounds = [round(1, S2, { step: "朝会を任せる", step_done: true }),
+    short(2, { reflection: { text: "月曜に\n話した", events: ["a", "b"], did: [], insights: ["c"] } })];
+  const s = roundSummary("社長", rounds, 1, { step: true, scores: true, reflection: true });
+  assert.doesNotMatch(s, /4つの軸/);
+  assert.match(s, /\n前回からの振り返り\n　出来事：a／b\n　気づき：c/);
+  assert.doesNotMatch(s, /やったこと：/);
+  assert.doesNotMatch(s, /書いたこと/);
+  assert.match(roundSummary("社長", rounds, 1, { reflection_text: true }), /書いたこと：月曜に \/ 話した/);
+  assert.doesNotMatch(roundSummary("社長", rounds, 1, { step: true }), /振り返り/);
+});
+
+test("途中の回：ショート回の下書きは reflect と short_steps で開き直し、AI の返事が無い short_steps は開かない", () => {
+  const deep = ["問い1"];
+  const rounds = [round(1, S2)];
+  const d = { round: 2, kind: "short", stage: "reflect", deep_texts: deep, text: "途中" };
+  assert.equal(draftMatches(d, rounds, deep), true);
+  assert.equal(draftMatches({ ...d, stage: "short_steps" }, rounds, deep), false);
+  assert.equal(draftMatches({ ...d, stage: "short_steps", current: { reflect: { step_options: ["a"] } } }, rounds, deep), true);
+  assert.equal(draftMatches({ ...d, kind: undefined }, rounds, deep), false); // いつもの回の段ではない
+  assert.equal(draftMatches({ ...d, stage: "quiz", kind: "short" }, rounds, deep), false);
 });
