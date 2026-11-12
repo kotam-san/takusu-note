@@ -855,6 +855,8 @@ function showReflect(resumed = false) {
   text.addEventListener("input", () => { draft.text = text.value; writeDraft(); showLeft(); });
   showLeft();
   const err = h("div");
+  // 一人で回りにくくなった合図は、いつもの回と同じく回の最初に出す（気力の落ちた人ほど、こちらを選びやすいため）
+  const nudge = resumed ? null : outsideNudgeCard(round, () => {});
 
   const send = h("button", { class: "primary" }, "整理する");
   send.addEventListener("click", () => busy(send, "AIが読んでいます…（15秒ほど）", async () => {
@@ -878,6 +880,7 @@ function showReflect(resumed = false) {
     resumed ? resumedNote() : null,
     h("h1", {}, `${ROLE_NAME[state.role]}・${round} 回目（振り返り）`),
     cheerBox(resumed ? [] : roundStartNotes(state.store.rounds, true)),
+    nudge,
     h("section", { class: "card" },
       h("h2", {}, "前回から、どんなことがありましたか"),
       h("p", { class: "notice" }, "起きたこと・やったこと・気づいたことを、思いつくまま書いてください。スマホなら、キーボードのマイクで話して入れられます。"),

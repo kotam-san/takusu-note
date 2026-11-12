@@ -27,6 +27,7 @@ const isStr = (v, max) => typeof v === "string" && v.length <= max;
 export function validateStore(data) {
   if (!data || typeof data !== "object" || data.version !== STORE_VERSION) return null;
   if (!Array.isArray(data.rounds) || data.rounds.length > 100) return null;
+  if (isShort(data.rounds[0])) return null; // 1回目はいつもの回（点数のある回が無いと、推移が描けない）
   for (const r of data.rounds) {
     if (!r || typeof r !== "object") return null;
     if (!Number.isInteger(r.round) || !isStr(r.date, 10)) return null;

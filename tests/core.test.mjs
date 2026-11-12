@@ -658,3 +658,9 @@ test("回の最初の一言：ショート回は、前回の一歩の結果だ�
   assert.ok(!notes.includes(CHEERS.memoOpen));
   assert.ok(roundStartNotes(rounds).includes(CHEERS.memoOpen)); // いつもの回は今どおり
 });
+
+test("記録の検証：1回目がショート回の記録は通さない（点数のある回が無いと、グラフが描けずホームが開かないため）", () => {
+  assert.equal(validateStore({ ...emptyStore(), rounds: [short(1)] }), null);
+  assert.equal(validateStore({ ...emptyStore(), rounds: [short(1), round(2, S2)] }), null);
+  assert.ok(validateStore({ ...emptyStore(), rounds: [round(1, S2), short(2)] }));
+});
