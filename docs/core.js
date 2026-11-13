@@ -206,9 +206,12 @@ export function roundStartNotes(rounds, short = false) {
   if (last?.step_done === true) notes.push(trailingDone(rounds) === 3 ? CHEERS.streak3 : fillCheer(CHEERS.stepDone, { rate: stepDoneRate(rounds) }));
   else if (last?.step_done === false) notes.push(CHEERS.stepMissed);
   if (short) return notes;
+  // 節目の回（メモが書けるようになる回・問いがそろう回）がショート回だったら、そのあと最初のいつもの回で出す
+  const k = shortStreak(rounds);
+  const reached = (m) => m >= round - k && m <= round;
   if (round === 2) notes.push(CHEERS.second);
-  if (round === MEMO_FROM_ROUND) notes.push(CHEERS.memoOpen);
-  if (round === DEEP_BY_ROUND.length) notes.push(fillCheer(CHEERS.full, { round, total: 4 + deepCountForRound(round) }));
+  if (reached(MEMO_FROM_ROUND)) notes.push(CHEERS.memoOpen);
+  if (reached(DEEP_BY_ROUND.length)) notes.push(fillCheer(CHEERS.full, { round, total: 4 + deepCountForRound(round) }));
   return notes;
 }
 

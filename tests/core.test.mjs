@@ -664,3 +664,18 @@ test("記録の検証：1回目がショート回の記録は通さない（点�
   assert.equal(validateStore({ ...emptyStore(), rounds: [short(1), round(2, S2)] }), null);
   assert.ok(validateStore({ ...emptyStore(), rounds: [round(1, S2), short(2)] }));
 });
+
+test("回の最初の一言：節目の回（3回目・6回目）がショート回だったら、次のいつもの回でその一言を出す", () => {
+  const full = (n) => round(n, S2);
+  // 3回目がショート回 → 4回目（いつもの回）でメモの一言
+  assert.ok(roundStartNotes([full(1), full(2), short(3)]).includes(CHEERS.memoOpen));
+  // 3回目・4回目とショート回が続いても、5回目で出す
+  assert.ok(roundStartNotes([full(1), full(2), short(3), short(4)]).includes(CHEERS.memoOpen));
+  // 3回目をいつもの回で迎えていれば、4回目では出さない
+  assert.ok(!roundStartNotes([full(1), full(2), full(3)]).includes(CHEERS.memoOpen));
+  // 6回目がショート回 → 7回目で問いがそろう一言（今の回の番号と問いの数で）
+  const r6 = [1, 2, 3, 4, 5].map(full).concat(short(6));
+  assert.ok(roundStartNotes(r6).includes(CHEERS.full.replace("{round}", "7").replace("{total}", "10")));
+  // ショート回そのものには出さない（前のまま）
+  assert.ok(!roundStartNotes([full(1), full(2)], true).includes(CHEERS.memoOpen));
+});
