@@ -12,7 +12,7 @@ const OUT = {
   start: { next_questions: qs3, fixed_examples: ex },
   diagnose: {
     summary: "s", axis_notes: [1, 2, 3, 4], coaching_question: "q", coaching_choices: ["a", "b"],
-    lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
+    lesson: { check: { question: "どれに近いですか", choices: ["1", "2", "3"], follow_ups: ["f1", "f2", "f3"] } },
   },
   coach: { reflection: "r", step_options: ["一歩1", "一歩2", "一歩3"], next_questions: qs, fixed_examples: ex },
   reflect: { organized: { events: ["出来事"], did: ["やったこと"], insights: ["気づき"] }, reply: "受け止め", step_options: ["一歩1", "一歩2", "一歩3"] },
@@ -244,4 +244,31 @@ test("これまでの記録：ショート回の行は点数なしで通り、�
   assert.match(sent[0].content, /- 2回目（2026-11-05）振り返りの回（点数なし）／一歩「一歩2」→ やれなかった（時間がとれなかった）\n　気づき：気づきX/);
   await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 3, fixed, deep: [], history: [{ ...history[1], kind: undefined }] }), InputError);
   await assert.rejects(handlers["/api/diagnose"]({ role: "ceo", round: 3, fixed, deep: [], history: [{ ...history[1], insight: "x".repeat(81) }] }), InputError);
+});
+
+test("今日の学び：確かめは正解の無い問い。選択肢3つと、それぞれの続けて考える問い3つがそろわなければ通さない（正解は持たない）", async () => {
+  const lesson = (check) => ({ ...OUT.diagnose, lesson: { ...OUT.diagnose.lesson, check } });
+  const ok = await setup(lesson({ question: "q", choices: ["a", "b", "c"], follow_ups: ["x", "y", "z"] })).handlers["/api/diagnose"]({ role: "ceo", round: 1, fixed, deep: [] });
+  assert.equal(ok.lesson.check.answer_index, undefined);
+  for (const check of [
+    { question: "q", choices: ["a", "b", "c"], answer_index: 0, explanation: "e" }, // 前の正解つきの形
+    { question: "q", choices: ["a", "b", "c"], follow_ups: ["x", "y"] },
+    { question: "q", choices: ["a", "b", "c"], follow_ups: ["x", "", "z"] },
+    { question: "", choices: ["a", "b", "c"], follow_ups: ["x", "y", "z"] },
+  ]) {
+    await assert.rejects(setup(lesson(check)).handlers["/api/diagnose"]({ role: "ceo", round: 1, fixed, deep: [] }), OutputError);
+  }
+  const schema = DIAGNOSE_SCHEMA.properties.lesson.properties.check;
+  assert.deepEqual(schema.required, ["question", "choices", "follow_ups"]);
+  assert.ok(!("answer_index" in schema.properties));
+});
+
+test("指示：学びは言い切らず、確かめは正解の無い問い。一歩の候補は提案として出す", () => {
+  for (const role of ["ceo", "leader"]) {
+    const d = diagnoseSystem(role);
+    assert.match(d, /正解の無い問い/);
+    assert.match(d, /follow_ups/);
+    assert.doesNotMatch(d, /answer_index|理解を確かめる/);
+    for (const s of [coachSystem(role), reflectSystem(role)]) assert.match(s, /あくまで提案/);
+  }
 });

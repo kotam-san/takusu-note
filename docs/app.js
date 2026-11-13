@@ -2,7 +2,7 @@
 // 表示はすべて textContent で入れる（AIの出力や自由記述をHTMLとして解釈しない）。
 
 import {
-  AXIS_KEYS, BACKUP_MAX_CHARS, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
+  AXIS_KEYS, BACKUP_MAX_CHARS, lessonFollowUp, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, NUDGE_BODY, NUDGE_TITLE, answersFromQuiz, answersToQuiz, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, homeNotes, lastMemo, localDate,
   makeBackup, memoEntries, memoOf, nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDecidedNote, stepDoneRate, stepMiss, validateStore,
 } from "./core.js";
 import { INDUSTRY_OTHER_MAX, PROFILE_FIELDS, ROLE_FIELDS, TITLE_MAX, validateProfile } from "./profile.js";
@@ -689,13 +689,15 @@ function showDiagnosis(resumed = false) {
     return h("div", { class: "note" }, h("b", {}, AXIS_NAMES[k]), n ? n.note : "");
   });
 
-  const result = h("p", { role: "status" });
+  // 確かめは正解の無い問い。選んだものに印をつけ、その人が続けて考える問いを出す（正解・不正解は言わない）
+  const result = h("p", { role: "status", class: "follow-up" });
   const choices = d.lesson.check.choices.map((c, i) =>
     h("button", {
+      "aria-pressed": "false",
       onclick: (ev) => {
-        const ok = i === d.lesson.check.answer_index;
-        ev.currentTarget.classList.add(ok ? "right" : "wrong");
-        result.textContent = (ok ? "その通りです。" : "もう一度、上の教材を読んでみてください。") + d.lesson.check.explanation;
+        for (const b of ev.currentTarget.parentElement.children) b.setAttribute("aria-pressed", "false");
+        ev.currentTarget.setAttribute("aria-pressed", "true");
+        result.textContent = lessonFollowUp(d.lesson.check, i);
       },
     }, c));
 
@@ -746,7 +748,7 @@ function showDiagnosis(resumed = false) {
     h("section", { class: "card" },
       h("h2", {}, "今日の学び"),
       h("div", { class: "lesson" }, h("h3", { style: "margin-top:0" }, d.lesson.title), h("p", {}, d.lesson.body)),
-      h("h3", {}, "確かめの問い"),
+      h("h3", {}, "あなたの場合は"),
       h("p", {}, d.lesson.check.question),
       h("div", { class: "choices" }, choices),
       result),

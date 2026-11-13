@@ -48,8 +48,11 @@ export function diagnoseSystem(role) {
    - 引っかかりの中身（<concern_kind>）が「まだ分からない」以外なら、その中身について書く（例：関係・気持ちの行き違いなら、行き違いが起きる場面と、その扱い方）。axis には最も近い軸を入れる
    - 中身が「まだ分からない」とき・引っかかりの記入がないときだけ、いちばん伸びしろのある軸について書く
    - title：20字以内
-   - body：300〜450字。考え方1つと、明日できる具体的なやり方1つ
-   - check：教材の理解を確かめる3択の問い（question・choices 3つ・answer_index 0〜2・explanation 60字以内）
+   - body：300〜450字。考え方の手がかり1つと、試せるやり方の例1つ。正解として言い切らず、「〜というやり方もあります」「〜と考える人もいます」の形で書く
+   - check：教材を自分の職場に当てはめて考える、正解の無い問い（理解を試すクイズにしない）
+     - question：「あなたの職場では、どれに近いですか」のように、自分の状況を選ぶ問い（60字以内）
+     - choices：3つ（各40字以内）。どれも起こりうる状況にし、良い・悪いの差をつけない
+     - follow_ups：choices と同じ順に3つ（各60字以内）。その選択肢を選んだ人が、続けて考えられる開いた問い。評価や正解を書かない
 4. coaching_question：3分コーチングの最初の問いを1つ。開いた問い（はい・いいえで終わらない）
    - 引っかかりの中身（<concern_kind>）が分かるときは、その中身が出ている場面を聞く
    - 中身が「まだ分からない」ときは、その難しさがどんな場面で出ているかを聞く。この場合 coaching_choices は、種類の違う候補（仕事の進め方／関係・気持ちの行き違い／数字や方針の共有／任せる範囲の線引き）から2〜3個作り、1つの軸に寄せない
@@ -61,6 +64,7 @@ export function diagnoseSystem(role) {
 
 // 一歩の候補の決まり（3分コーチングと振り返りの回で同じ）。from は候補の手がかりにするもの
 const stepRule = (from) => `step_options：今週の小さな一歩の候補を3つ（各40字以内）。${from}から出てきたもので、1週間で終わり、やったかどうかが本人に分かるもの
+   - あくまで提案。本人が選び直したり、自分で書いたりできる前提で、「〜すべき」と言い切らずに書く
    - 前回の一歩をやれなかった理由があれば、それに合わせて一歩を変える：時間がとれなかった→もっと小さく短く／その場面が来なかった→場面を自分で作る一歩／気が進まなかった・言い出しにくかった→相手・言い方・場を変える／やる前に違うと分かった→何が違ったかを生かす／忘れていた→予定に入れるなど、思い出す仕掛けごと`;
 
 // 振り返りだけの回：問いには答えず、前回から起きたこと・やったことを本人が書いた（<reflection>）
@@ -168,10 +172,9 @@ export const DIAGNOSE_SCHEMA = {
           properties: {
             question: { type: "string" },
             choices: { type: "array", items: { type: "string" } },
-            answer_index: { type: "integer" },
-            explanation: { type: "string" },
+            follow_ups: { type: "array", items: { type: "string" } },
           },
-          required: ["question", "choices", "answer_index", "explanation"],
+          required: ["question", "choices", "follow_ups"],
           additionalProperties: false,
         },
       },

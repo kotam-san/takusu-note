@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  BACKUP_MAX_CHARS, REFLECT_ITEM_MAX, REFLECT_ITEMS_MAX, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, shortStreak, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
+  BACKUP_MAX_CHARS, lessonFollowUp, REFLECT_ITEM_MAX, REFLECT_ITEMS_MAX, REFLECT_TEXT_MAX, clipReflection, isShort, scoredRounds, shortStreak, answersFromQuiz, answersToQuiz, changeSinceFirst, clipLesson, deepForRound, diagnosisNotes, draftMatches, emptyAnswers, emptyStore, firstOpenStep, gapDays, homeNotes, lastMemo, makeBackup, memoEntries, memoOf,
   nudgeLines, nudgeToShow, outsideTalkSignals, quizOrder, readBackup, roundMemos, roundStartNotes, roundSummary, sampleAnswers, scoreOf, seriesByAxis, setMemo, setScore, stepDoneRate, stepMiss, trailingDone, validateStore,
 } from "../docs/core.js";
 import { CHEERS, CHEER_GAP_DAYS, DEEP_BY_ROUND, MEMO_FROM_ROUND, MEMO_MAX, QUESTIONS, SAMPLE } from "../docs/questions.js";
@@ -678,4 +678,13 @@ test("回の最初の一言：節目の回（3回目・6回目）がショート
   assert.ok(roundStartNotes(r6).includes(CHEERS.full.replace("{round}", "7").replace("{total}", "10")));
   // ショート回そのものには出さない（前のまま）
   assert.ok(!roundStartNotes([full(1), full(2)], true).includes(CHEERS.memoOpen));
+});
+
+test("今日の学び：選んだ選択肢に合う、続けて考える問いを返す。正解・不正解は言わない（前の正解つきの形は、説明だけ返す）", () => {
+  const check = { question: "q", choices: ["a", "b", "c"], follow_ups: ["続き1", "続き2", "続き3"] };
+  assert.equal(lessonFollowUp(check, 1), "続き2");
+  assert.equal(lessonFollowUp(check, 5), "");
+  assert.equal(lessonFollowUp({ question: "q", choices: ["a", "b", "c"], answer_index: 0, explanation: "説明" }, 2), "説明");
+  assert.equal(lessonFollowUp({ choices: ["a"] }, 0), "");
+  assert.equal(lessonFollowUp(null, 0), "");
 });

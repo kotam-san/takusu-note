@@ -17,7 +17,7 @@ process.stdin.on("end", () => {
     : schema.required.includes("coaching_choices")
     ? {
       summary: "見立て", axis_notes: ["A", "B", "C", "D"].map((axis) => ({ axis, note: "メモ" })),
-      lesson: { axis: "A", title: "学び", body: "本文", check: { question: "確かめ", choices: ["1", "2", "3"], answer_index: 0, explanation: "説明" } },
+      lesson: { axis: "A", title: "学び", body: "本文", check: { question: "どれに近いですか", choices: ["1", "2", "3"], follow_ups: ["続き1", "続き2", "続き3"] } },
       coaching_question: "コーチの問い", coaching_choices: ["候補1", "候補2"],
     }
     : schema.required.includes("step_options")

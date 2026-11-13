@@ -73,8 +73,8 @@ textarea{width:100%;min-height:96px;font:inherit;border:1px solid var(--line);bo
 .lesson{background:var(--chip);border-radius:12px;padding:16px}
 .choices{display:grid;gap:6px;margin-top:8px}
 .choices button{text-align:left}
-.choices button.right{border-color:var(--ok);color:var(--ok);font-weight:600}
-.choices button.wrong{border-color:var(--warn);color:var(--warn)}
+.follow-up{margin-top:10px;font-weight:600}
+.follow-up:empty{display:none}
 .steps label{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer}
 .kinds input[type=radio]{position:absolute;opacity:0;pointer-events:none}
 .kinds label:has(input:checked){background:var(--chip);border-color:var(--accent)}
@@ -118,8 +118,8 @@ footer{color:var(--muted);font-size:12px;margin-top:40px}
 <!-- JS は版つきの URL で読む（更新のとき、新旧の JS が混ざらないように）。版は node scripts/stamp-version.mjs で更新する。
      import map に対応しない古いブラウザでは、版なしの読み込みで今まで通り動く -->
 <script type="importmap">
-{"imports":{"./core.js":"./core.js?v=a6343d23","./profile.js":"./profile.js?v=a6343d23","./questions.js":"./questions.js?v=a6343d23"}}
+{"imports":{"./core.js":"./core.js?v=ea1415aa","./profile.js":"./profile.js?v=ea1415aa","./questions.js":"./questions.js?v=ea1415aa"}}
 </script>
-<script type="module" src="./app.js?v=a6343d23"></script>
+<script type="module" src="./app.js?v=ea1415aa"></script>
 </body>
 </html>
