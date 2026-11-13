@@ -142,6 +142,15 @@ export function clipLesson(lesson) {
   return { title: lesson.title.slice(0, LESSON_TITLE_MAX), body: lesson.body.slice(0, LESSON_BODY_MAX) };
 }
 
+// 今日の学びの確かめ（正解の無い問い）で、選んだ選択肢に続けて考える問い。判定はしない。
+// 前の中継の形（正解つき：answer_index・explanation）が届いたときは、正解・不正解を言わず説明だけを返す
+export function lessonFollowUp(check, i) {
+  const f = check?.follow_ups?.[i];
+  if (typeof f === "string") return f;
+  if (!Array.isArray(check?.follow_ups) && typeof check?.explanation === "string") return check.explanation;
+  return "";
+}
+
 // 途中の回の下書き（ページを離れて戻っても続きから開くため）。開いてよいのは、
 // まだ保存していない次の回で、同じ深掘りの問いに答えている途中のものだけ（保存済みの回を二重に積まない）
 // ショート回（draft.kind === "short"）は、書いている途中（reflect）と一歩を選ぶ途中（short_steps）だけ

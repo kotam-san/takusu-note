@@ -178,8 +178,11 @@ const filled = (v) => typeof v === "string" && v.trim() !== "";
 
 export function validDiagnosis(out) {
   const n = out?.coaching_choices?.length;
-  return out?.axis_notes?.length === 4 && out.lesson?.check?.choices?.length === 3 &&
-    [0, 1, 2].includes(out.lesson.check.answer_index) && filled(out.coaching_question) &&
+  // 今日の学びの確かめは、正解の無い問い：問い・選択肢3つ・選んだ人が続けて考える問い3つ
+  const check = out?.lesson?.check;
+  return out?.axis_notes?.length === 4 && filled(check?.question) &&
+    check.choices?.length === 3 && check.choices.every(filled) &&
+    check.follow_ups?.length === 3 && check.follow_ups.every(filled) && filled(out.coaching_question) &&
     n >= 2 && n <= 3 && out.coaching_choices.every(filled);
 }
 

@@ -122,7 +122,7 @@ test("指示：問いは場面を1つに絞り、候補と推移4問の例を作
 test("AI の出力の形：候補が2〜3個・例が4軸そろっていなければ通さない", () => {
   const diag = {
     summary: "s", axis_notes: [1, 2, 3, 4], coaching_question: "q", coaching_choices: ["a", "b"],
-    lesson: { check: { choices: ["1", "2", "3"], answer_index: 0 } },
+    lesson: { check: { question: "どれに近いですか", choices: ["1", "2", "3"], follow_ups: ["f1", "f2", "f3"] } },
   };
   assert.equal(validDiagnosis(diag), true);
   assert.equal(validDiagnosis({ ...diag, coaching_choices: ["a"] }), false);
